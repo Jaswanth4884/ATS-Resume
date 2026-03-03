@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Professional Resume Builder - Create beautiful, customizable resumes with ease. Features include grammar checking, PDF export, and custom sections.">
+  <meta name="keywords" content="resume, builder, cv, professional, job, career, pdf, download">
+  <meta name="author" content="Resume Builder App">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://resume-builder-app.vercel.app/">
+  <meta property="og:title" content="Professional Resume Builder">
+  <meta property="og:description" content="Create beautiful, professional resumes with our easy-to-use resume builder. Features include grammar checking, PDF export, and custom sections.">
+  <meta property="og:image" content="https://resume-builder-app.vercel.app/icons/Icon-512.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://resume-builder-app.vercel.app/">
+  <meta property="twitter:title" content="Professional Resume Builder">
+  <meta property="twitter:description" content="Create beautiful, professional resumes with our easy-to-use resume builder.">
+  <meta property="twitter:image" content="https://resume-builder-app.vercel.app/icons/Icon-512.png">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Resume Builder">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Professional Resume Builder</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #E8F5E8;
+      font-family: 'Roboto', sans-serif;
+    }
+    
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #E8F5E8;
+    }
+    
+    .loading-text {
+      margin-top: 20px;
+      color: #2D3748;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid #B8E6C1;
+      border-top: 5px solid #6B8E7F;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading Resume Builder...</div>
+  </div>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

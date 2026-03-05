@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'main.dart';
+import 'registerscreen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -1235,49 +1236,10 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _showSignUpDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            'Sign Up',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2D3748),
-            ),
-          ),
-          content: const Text(
-            'Sign up functionality will be available in the next version. For now, you can continue as a guest to access all features.',
-            style: TextStyle(color: Color(0xFF718096)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Color(0xFF718096)),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _continueAsGuest();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6B8E7F),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text('Continue as Guest'),
-            ),
-          ],
-        );
-      },
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const RegisterScreen(),
+      ),
     );
   }
 
@@ -1380,3 +1342,4 @@ class ParticlePainter extends CustomPainter {
     return animationValue != oldDelegate.animationValue;
   }
 }
+

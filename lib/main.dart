@@ -4,10 +4,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
 import 'dart:convert';
 import 'resume_model.dart';
+import 'loginscreen.dart';
 
 void main() => runApp(const ProResumeApp());
 
@@ -16,9 +15,15 @@ class ProResumeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: ResumeHome(),
+      title: 'Resume Builder',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        primaryColor: const Color(0xFF6B8E7F),
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+      home: const LoginScreen(),
     );
   }
 }
@@ -62,152 +67,684 @@ class _ResumeHomeState extends State<ResumeHome> {
   
   // Custom sections (user-added)
   List<Map<String, String>> customSections = [];
+  
+  // Add section form state
+  bool _showAddSectionForm = false;
+  final TextEditingController _newSectionNameController = TextEditingController();
+  final TextEditingController _newSectionContentController = TextEditingController();
+  
+  // Collapsible state for all sections
+  bool isPersonalExpanded = true;
+  bool isSkillsExpanded = true;
+  bool isExperienceExpanded = true;
+  bool isProjectsExpanded = true;
+  bool isEducationExpanded = true;
+  bool isAchievementsExpanded = true;
+  bool isStrengthsExpanded = true;
+
+  // ATS Score tracking
+  int _atsScore = 0;
+  List<String> _atsRecommendations = [];
+  String _atsScoreText = "Not analyzed";
+
+  @override
+  void dispose() {
+    _newSectionNameController.dispose();
+    _newSectionContentController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFE8F5E8),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         centerTitle: true,
         elevation: 0,
         title: const Text(
           "Professional Resume Builder",
           style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF2D3748),
-            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            fontSize: 22,
+            letterSpacing: 0.5,
           ),
         ),
-        backgroundColor: const Color(0xFFE8F5E8),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [const Color(0xFF6B8E7F), const Color(0xFF557A6E)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        backgroundColor: const Color(0xFF6B8E7F),
       ),
-      body: Row(
-        children: [
-          // LEFT — EDITOR
-          Expanded(
-            flex: 3,
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8FFF0),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFB8E6C1)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return Row(
+            children: [
+              // LEFT — RESUME FORM (50%)
+              Expanded(
+                flex: 1,
+                child: _buildFormSection(),
               ),
+              
+              // DIVIDER
+              Container(
+                width: 1,
+                color: const Color(0xFFE2E8F0),
+              ),
+              
+              // RIGHT — PREVIEW SECTION (50%)
+              Expanded(
+                flex: 1,
+                child: _buildPreviewSection(),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFormSection() {
+    return Container(
+      color: const Color(0xFFF8FAFC),
+      child: Column(
+        children: [
+          // Header with Extra Features Button
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    "Resume Information",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A202C),
+                    ),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _showATSScoreDialog,
+                  icon: const Icon(Icons.analytics_outlined, size: 18),
+                  label: const Text("ATS Score"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B5CF6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 2,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _showExtraEditingDialog,
+                  icon: const Icon(Icons.palette, size: 18),
+                  label: const Text("Customize"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6B8E7F),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Scrollable Form Content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF6B8E7F),
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(12),
-                        topRight: Radius.circular(12),
-                      ),
-                    ),
-                    width: double.infinity,
-                    child: const Text(
-                      "Resume Information",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        // Extra Editing Features Button
-                        Container(
-                          width: double.infinity,
-                          margin: const EdgeInsets.all(16),
-                          child: ElevatedButton.icon(
-                            onPressed: _showExtraEditingDialog,
-                            icon: const Icon(Icons.palette, size: 20),
-                            label: const Text("Extra Editing Features"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF6B8E7F),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildEditorSection(),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildPersonalInfoCard(),
+                  const SizedBox(height: 16),
+                  _buildSkillsCard(),
+                  const SizedBox(height: 16),
+                  _buildExperienceCard(),
+                  const SizedBox(height: 16),
+                  _buildProjectsCard(),
+                  const SizedBox(height: 16),
+                  _buildEducationCard(),
+                  const SizedBox(height: 16),
+                  _buildAchievementsCard(),
+                  const SizedBox(height: 16),
+                  _buildStrengthsCard(),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
 
-          Container(width: 1, color: const Color(0xFFE1C2FF)),
-
-          // RIGHT — PREVIEW
-          Expanded(
-            flex: 4,
+  Widget _buildPersonalInfoCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isPersonalExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isPersonalExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.person_outline,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Personal Information",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               children: [
-                // Action buttons at top right
-                Container(
-                  margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      // Download as PDF button
-                      Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        child: ElevatedButton.icon(
-                          onPressed: _downloadAsPDF,
-                          icon: const Icon(Icons.download, size: 18),
-                          label: const Text(
-                            "Download PDF",
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6B8E7F),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                _modernTextField("Full Name", Icons.person, (v) => setState(() => data.name = v)),
+                _modernTextField("Phone", Icons.phone, (v) => setState(() => data.phone = v)),
+                _modernTextField("Email", Icons.email, (v) => setState(() => data.email = v)),
+                _modernTextField("LinkedIn URL", Icons.link, (v) => setState(() => data.linkedin = v)),
+                _modernTextField("LinkedIn Display Name", Icons.business, (v) => setState(() => data.linkedinName = v)),
+                _modernTextField("GitHub URL", Icons.code, (v) => setState(() => data.github = v)),
+                _modernTextField("GitHub Display Name", Icons.code_outlined, (v) => setState(() => data.githubName = v)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkillsCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isSkillsExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isSkillsExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.psychology_outlined,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Skills",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                _modernTextField("Languages", Icons.language, (v) => setState(() => data.languages = v)),
+                _modernTextField("Frameworks and Databases", Icons.storage, (v) => setState(() => data.frameworks = v)),
+                _modernTextField("Tools and Technologies", Icons.build, (v) => setState(() => data.tools = v)),
+                _modernTextField("Others", Icons.more_horiz, (v) => setState(() => data.others = v)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modernTextField(String label, IconData icon, Function(String) onChanged, {int lines = 1}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: TextField(
+        maxLines: lines,
+        onChanged: onChanged,
+        style: const TextStyle(
+          fontSize: 14,
+          color: Color(0xFF2D3748),
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(
+            icon,
+            color: const Color(0xFF6B8E7F),
+            size: 20,
+          ),
+          labelStyle: const TextStyle(
+            color: Color(0xFF718096),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(
+              color: Color(0xFFE2E8F0),
+              width: 1.5,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(
+              color: Color(0xFF6B8E7F),
+              width: 2,
+            ),
+          ),
+          filled: true,
+          fillColor: const Color(0xFFF7FAFC),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(
+              color: Colors.redAccent,
+              width: 1.5,
+            ),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(
+              color: Colors.red,
+              width: 2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExperienceCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isExperienceExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isExperienceExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.work_outline,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Experience",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                ...data.experiences.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  ExperienceItem experience = entry.value;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FFF4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFB8E6C1)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                "Experience ${index + 1}",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF2D3748),
+                                  fontSize: 15,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (data.experiences.length > 1)
+                              IconButton(
+                                onPressed: () => _removeExperience(index),
+                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                tooltip: 'Remove Experience',
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _modernTextField("Company Name", Icons.business, (v) => setState(() => experience.companyName = v)),
+                        _modernTextField("Job Title", Icons.work, (v) => setState(() => experience.jobTitle = v)),
+                        _modernTextField("Location", Icons.location_on, (v) => setState(() => experience.location = v)),
+                        _modernTextField("Duration", Icons.schedule, (v) => setState(() => experience.duration = v)),
+                        _modernTextField("Description", Icons.description, (v) => setState(() => experience.description = v), lines: 3),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                _modernAddButton("Add Experience", Icons.add_business, _addExperience),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProjectsCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isProjectsExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isProjectsExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.folder_outlined,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Projects",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                ...data.projects.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  ProjectItem project = entry.value;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FFF4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFB8E6C1)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                "Project ${index + 1}",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF2D3748),
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                            if (data.projects.length > 1)
+                              IconButton(
+                                onPressed: () => _removeProject(index),
+                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                tooltip: 'Remove Project',
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _modernTextField("Project Title", Icons.title, (v) => setState(() => project.title = v)),
+                        _modernTextField("Project Description", Icons.description, (v) => setState(() => project.description = v), lines: 3),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                _modernAddButton("Add Project", Icons.add_box, _addProject),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEducationCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isEducationExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isEducationExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.school_outlined,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Education",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                // University block
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "University",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3748),
+                          fontSize: 15,
                         ),
                       ),
-                      // Copy as link button
-                      ElevatedButton.icon(
-                        onPressed: _copyAsLink,
-                        icon: const Icon(Icons.link, size: 18),
-                        label: const Text(
-                          "Copy Link",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF8E6B7F),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
+                      const SizedBox(height: 12),
+                      _modernTextField("University Name", Icons.account_balance, (v) => setState(() => data.university = v)),
+                      _modernTextField("University GPA", Icons.grade, (v) => setState(() => data.universityGPA = v)),
+                      _modernTextField("University Location", Icons.location_on, (v) => setState(() => data.universityLocation = v)),
+                      _modernTextField("University Duration", Icons.schedule, (v) => setState(() => data.universityDuration = v)),
                     ],
                   ),
                 ),
-                // Resume preview
-                Expanded(
-                  child: _buildPreviewSection(),
+                // College block
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "College",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3748),
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _modernTextField("College Name", Icons.school, (v) => setState(() => data.college = v)),
+                      _modernTextField("College GPA", Icons.grade, (v) => setState(() => data.collegeGPA = v)),
+                      _modernTextField("College Location", Icons.location_on, (v) => setState(() => data.collegeLocation = v)),
+                      _modernTextField("College Duration", Icons.schedule, (v) => setState(() => data.collegeDuration = v)),
+                    ],
+                  ),
+                ),
+                // High School block
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "High School",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3748),
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _modernTextField("High School Name", Icons.school, (v) => setState(() => data.highSchool = v)),
+                      _modernTextField("High School GPA", Icons.grade, (v) => setState(() => data.highSchoolGPA = v)),
+                      _modernTextField("High School Location", Icons.location_on, (v) => setState(() => data.highSchoolLocation = v)),
+                      _modernTextField("High School Duration", Icons.schedule, (v) => setState(() => data.highSchoolDuration = v)),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -217,349 +754,979 @@ class _ResumeHomeState extends State<ResumeHome> {
     );
   }
 
-  Widget _buildEditorSection() {
+  Widget _buildAchievementsCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isAchievementsExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isAchievementsExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.emoji_events_outlined,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Achievements",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                ...data.achievements.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _modernTextField("Achievement ${index + 1}", Icons.star_outline, (v) => setState(() => data.achievements[index] = v)),
+                        ),
+                        if (data.achievements.length > 1)
+                          IconButton(
+                            onPressed: () => _removeAchievement(index),
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            tooltip: 'Remove Achievement',
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                _modernAddButton("Add Achievement", Icons.add_circle_outline, _addAchievement),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStrengthsCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isStrengthsExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isStrengthsExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.fitness_center_outlined,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Strengths",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                ...data.strengths.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _modernTextField("Strength ${index + 1}", Icons.psychology, (v) => setState(() => data.strengths[index] = v)),
+                        ),
+                        if (data.strengths.length > 1)
+                          IconButton(
+                            onPressed: () => _removeStrength(index),
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            tooltip: 'Remove Strength',
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                _modernAddButton("Add Strength", Icons.add_circle_outline, _addStrength),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modernAddButton(String text, IconData icon, VoidCallback onPressed) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF6B8E7F),
+          side: const BorderSide(
+            color: Color(0xFF6B8E7F),
+            width: 1.5,
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          backgroundColor: const Color(0xFF6B8E7F).withOpacity(0.05),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExperienceCard2() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: isExperienceExpanded,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            isExperienceExpanded = expanded;
+          });
+        },
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.work_outline,
+            color: Color(0xFF6B8E7F),
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          "Experience",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A202C),
+          ),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              children: [
+                ...data.experiences.asMap().entries.map((entry) {
+                  int index = entry.key;
+                  ExperienceItem experience = entry.value;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FFF4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFB8E6C1)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                "Experience ${index + 1}",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF2D3748),
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                            if (data.experiences.length > 1)
+                              IconButton(
+                                onPressed: () => _removeExperience(index),
+                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                tooltip: 'Remove Experience',
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _modernTextField("Company Name", Icons.business, (v) => setState(() => experience.companyName = v)),
+                        _modernTextField("Job Title", Icons.work, (v) => setState(() => experience.jobTitle = v)),
+                        _modernTextField("Location", Icons.location_on, (v) => setState(() => experience.location = v)),
+                        _modernTextField("Duration", Icons.schedule, (v) => setState(() => experience.duration = v)),
+                        _modernTextField("Description", Icons.description, (v) => setState(() => experience.description = v), lines: 3),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                _modernAddButton("Add Experience", Icons.add_business, _addExperience),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _oldBuildEditorSection() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // Personal Information
-        _sectionHeader("Personal Information"),
-        _customTextField("Full Name", (v) => setState(() => data.name = v)),
-        _customTextField("Street Address", (v) => setState(() => data.street = v)),
-        _customTextField("City, State", (v) => setState(() => data.city = v)),
-        _customTextField("Zip Code", (v) => setState(() => data.zipCode = v)),
-        _customTextField("Phone", (v) => setState(() => data.phone = v)),
-        _customTextField("Email", (v) => setState(() => data.email = v)),
-        _customTextField("LinkedIn URL", (v) => setState(() => data.linkedin = v)),
-        _customTextField("LinkedIn Display Name", (v) => setState(() => data.linkedinName = v)),
-        _customTextField("GitHub URL", (v) => setState(() => data.github = v)),
-        _customTextField("GitHub Display Name", (v) => setState(() => data.githubName = v)),
+        // Personal Information (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isPersonalExpanded = !isPersonalExpanded),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Personal Information",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+                Icon(
+                  isPersonalExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isPersonalExpanded) ...[
+          _customTextField("Full Name", (v) => setState(() => data.name = v)),
+          _customTextField("Phone", (v) => setState(() => data.phone = v)),
+          _customTextField("Email", (v) => setState(() => data.email = v)),
+          _customTextField("LinkedIn URL", (v) => setState(() => data.linkedin = v)),
+          _customTextField("LinkedIn Display Name", (v) => setState(() => data.linkedinName = v)),
+          _customTextField("GitHub URL", (v) => setState(() => data.github = v)),
+          _customTextField("GitHub Display Name", (v) => setState(() => data.githubName = v)),
+        ],
+        const SizedBox(height: 20),
+        
+        // Skills (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isSkillsExpanded = !isSkillsExpanded),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Skills",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+                Icon(
+                  isSkillsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isSkillsExpanded) ...[  
+          _customTextField("Languages", (v) => setState(() => data.languages = v)),
+          _customTextField("Frameworks and Databases", (v) => setState(() => data.frameworks = v)),
+          _customTextField("Tools and Technologies", (v) => setState(() => data.tools = v)),
+          _customTextField("Others", (v) => setState(() => data.others = v)),
+        ],
         
         const SizedBox(height: 20),
         
-        // Skills
-        _sectionHeader("Skills"),
-        _customTextField("Languages", (v) => setState(() => data.languages = v)),
-        _customTextField("Frameworks and Databases", (v) => setState(() => data.frameworks = v)),
-        _customTextField("Tools and Technologies", (v) => setState(() => data.tools = v)),
-        _customTextField("Others", (v) => setState(() => data.others = v)),
+        // Experience (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isExperienceExpanded = !isExperienceExpanded),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Experience",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+                Icon(
+                  isExperienceExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isExperienceExpanded) ...[
+          ...data.experiences.asMap().entries.map((entry) {
+            int index = entry.key;
+            ExperienceItem experience = entry.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FFF4),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFB8E6C1)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "Experience ${index + 1}",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2D3748),
+                          ),
+                        ),
+                      ),
+                      if (data.experiences.length > 1)
+                        IconButton(
+                          onPressed: () => _removeExperience(index),
+                          icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _customTextField("Company Name", (v) => setState(() => experience.companyName = v)),
+                  _customTextField("Job Title", (v) => setState(() => experience.jobTitle = v)),
+                  _customTextField("Location", (v) => setState(() => experience.location = v)),
+                  _customTextField("Duration", (v) => setState(() => experience.duration = v)),
+                  _customTextField("Description", (v) => setState(() => experience.description = v), lines: 3),
+                ],
+              ),
+            );
+          }).toList(),
+          _addButton("Add Experience", _addExperience),
+        ],
         
         const SizedBox(height: 20),
         
-        // Experience
-        _sectionHeader("Experience"),
-        ...data.experiences.asMap().entries.map((entry) {
-          int index = entry.key;
-          ExperienceItem experience = entry.value;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(12),
+        // Projects (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isProjectsExpanded = !isProjectsExpanded),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Projects",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+                Icon(
+                  isProjectsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isProjectsExpanded) ...[
+          ...data.projects.asMap().entries.map((entry) {
+            int index = entry.key;
+            ProjectItem project = entry.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FFF4),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFB8E6C1)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "Project ${index + 1}",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2D3748),
+                          ),
+                        ),
+                      ),
+                      if (data.projects.length > 1)
+                        IconButton(
+                          onPressed: () => _removeProject(index),
+                          icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _customTextField("Project Title", (v) => setState(() => project.title = v)),
+                  _customTextField("Project Description", (v) => setState(() => project.description = v), lines: 3),
+                ],
+              ),
+            );
+          }).toList(),
+          _addButton("Add Project", _addProject),
+        ],
+        const SizedBox(height: 20),
+
+        // Education (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isEducationExpanded = !isEducationExpanded),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Education",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+                Icon(
+                  isEducationExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isEducationExpanded) ...[
+          // University block
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0FFF4),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFB8E6C1)),
+              color: const Color(0xFFFAFBFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFE2E8F0),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               children: [
                 Row(
-                  children: [
+                  children: const [
                     Expanded(
                       child: Text(
-                        "Experience ${index + 1}",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
+                        "University",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
                           color: Color(0xFF2D3748),
+                          fontSize: 15,
                         ),
                       ),
                     ),
-                    if (data.experiences.length > 1)
-                      IconButton(
-                        onPressed: () => _removeExperience(index),
-                        icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                _customTextField("Company Name", (v) => setState(() => experience.companyName = v)),
-                _customTextField("Job Title", (v) => setState(() => experience.jobTitle = v)),
-                _customTextField("Location", (v) => setState(() => experience.location = v)),
-                _customTextField("Duration", (v) => setState(() => experience.duration = v)),
-                _customTextField("Description", (v) => setState(() => experience.description = v), lines: 3),
+                const SizedBox(height: 12),
+                _customTextField("University Name", (v) => setState(() => data.university = v)),
+                _customTextField("University GPA", (v) => setState(() => data.universityGPA = v)),
+                _customTextField("University Location", (v) => setState(() => data.universityLocation = v)),
+                _customTextField("University Duration", (v) => setState(() => data.universityDuration = v)),
               ],
             ),
-          );
-        }).toList(),
-        _addButton("Add Experience", _addExperience),
-        
-        const SizedBox(height: 20),
-        
-        // Projects
-        _sectionHeader("Projects"),
-        ...data.projects.asMap().entries.map((entry) {
-          int index = entry.key;
-          ProjectItem project = entry.value;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(12),
+          ),
+
+          // College block
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0FFF4),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFB8E6C1)),
+              color: const Color(0xFFFAFBFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFE2E8F0),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               children: [
                 Row(
-                  children: [
+                  children: const [
                     Expanded(
                       child: Text(
-                        "Project ${index + 1}",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
+                        "College",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
                           color: Color(0xFF2D3748),
+                          fontSize: 15,
                         ),
                       ),
                     ),
-                    if (data.projects.length > 1)
-                      IconButton(
-                        onPressed: () => _removeProject(index),
-                        icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                _customTextField("Project Title", (v) => setState(() => project.title = v)),
-                _customTextField("Project Description", (v) => setState(() => project.description = v), lines: 3),
+                const SizedBox(height: 12),
+                _customTextField("College Name", (v) => setState(() => data.college = v)),
+                _customTextField("College GPA", (v) => setState(() => data.collegeGPA = v)),
+                _customTextField("College Location", (v) => setState(() => data.collegeLocation = v)),
+                _customTextField("College Duration", (v) => setState(() => data.collegeDuration = v)),
               ],
             ),
-          );
-        }).toList(),
-        _addButton("Add Project", _addProject),
-        
-        const SizedBox(height: 20),
-        
-        // Education
-        _sectionHeader("Education"),
-        _customTextField("University Name", (v) => setState(() => data.university = v)),
-        _customTextField("University GPA", (v) => setState(() => data.universityGPA = v)),
-        _customTextField("University Location", (v) => setState(() => data.universityLocation = v)),
-        _customTextField("University Duration", (v) => setState(() => data.universityDuration = v)),
-        
-        _customTextField("College Name", (v) => setState(() => data.college = v)),
-        _customTextField("College GPA", (v) => setState(() => data.collegeGPA = v)),
-        _customTextField("College Location", (v) => setState(() => data.collegeLocation = v)),
-        _customTextField("College Duration", (v) => setState(() => data.collegeDuration = v)),
-        
-        _customTextField("High School Name", (v) => setState(() => data.highSchool = v)),
-        _customTextField("High School GPA", (v) => setState(() => data.highSchoolGPA = v)),
-        _customTextField("High School Location", (v) => setState(() => data.highSchoolLocation = v)),
-        _customTextField("High School Duration", (v) => setState(() => data.highSchoolDuration = v)),
-        
-        const SizedBox(height: 20),
-        
-        // Achievements
-        _sectionHeader("Achievements"),
-        ...data.achievements.asMap().entries.map((entry) {
-          int index = entry.key;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _customTextField("Achievement ${index + 1}", (v) => setState(() => data.achievements[index] = v)),
+          ),
+
+          // High School block
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFAFBFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFE2E8F0),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
-                if (data.achievements.length > 1)
-                  IconButton(
-                    onPressed: () => _removeAchievement(index),
-                    icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
               ],
             ),
-          );
-        }).toList(),
-        _addButton("Add Achievement", _addAchievement),
-        
+            child: Column(
+              children: [
+                Row(
+                  children: const [
+                    Expanded(
+                      child: Text(
+                        "High School",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3748),
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _customTextField("High School Name", (v) => setState(() => data.highSchool = v)),
+                _customTextField("High School GPA", (v) => setState(() => data.highSchoolGPA = v)),
+                _customTextField("High School Location", (v) => setState(() => data.highSchoolLocation = v)),
+                _customTextField("High School Duration", (v) => setState(() => data.highSchoolDuration = v)),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         
-        // Strengths
-        _sectionHeader("Strengths"),
-        ...data.strengths.asMap().entries.map((entry) {
-          int index = entry.key;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
+        // Achievements (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isAchievementsExpanded = !isAchievementsExpanded),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: _customTextField("Strength ${index + 1}", (v) => setState(() => data.strengths[index] = v)),
-                ),
-                if (data.strengths.length > 1)
-                  IconButton(
-                    onPressed: () => _removeStrength(index),
-                    icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
+                const Text(
+                  "Achievements",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
                   ),
+                ),
+                Icon(
+                  isAchievementsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
               ],
             ),
-          );
-        }).toList(),
-        _addButton("Add Strength", _addStrength),
+          ),
+        ),
+        if (isAchievementsExpanded) ...[
+          ...data.achievements.asMap().entries.map((entry) {
+            int index = entry.key;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _customTextField("Achievement ${index + 1}", (v) => setState(() => data.achievements[index] = v)),
+                  ),
+                  if (data.achievements.length > 1)
+                    IconButton(
+                      onPressed: () => _removeAchievement(index),
+                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                ],
+              ),
+            );
+          }).toList(),
+          _addButton("Add Achievement", _addAchievement),
+        ],
+        const SizedBox(height: 20),
+        
+        // Strengths (collapsible)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => setState(() => isStrengthsExpanded = !isStrengthsExpanded),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Strengths",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D3748),
+                  ),
+                ),
+                Icon(
+                  isStrengthsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                  color: const Color(0xFF2D3748),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isStrengthsExpanded) ...[
+          ...data.strengths.asMap().entries.map((entry) {
+            int index = entry.key;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _customTextField("Strength ${index + 1}", (v) => setState(() => data.strengths[index] = v)),
+                  ),
+                  if (data.strengths.length > 1)
+                    IconButton(
+                      onPressed: () => _removeStrength(index),
+                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                ],
+              ),
+            );
+          }).toList(),
+          _addButton("Add Strength", _addStrength),
+        ],
       ],
     );
   }
 
   Widget _buildPreviewSection() {
     return Container(
-      margin: const EdgeInsets.all(16),
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: 210 / 297, // A4 aspect ratio (width/height)
-          child: Container(
-            constraints: const BoxConstraints(
-              maxWidth: 580, // Slightly reduced A4 width for better margins
-              maxHeight: 820, // Slightly reduced A4 height for better fit
-            ),
-            decoration: BoxDecoration(
+      color: const Color(0xFFF1F5F9),
+      child: Column(
+        children: [
+          // Header with Action Buttons
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+              ),
             ),
-            child: Column(
+            child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF8E6B7F),
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(8),
-                      topRight: Radius.circular(8),
+                const Expanded(
+                  child: Text(
+                    "Live Preview",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A202C),
                     ),
-                  ),
-                  width: double.infinity,
-                  child: Row(
-                    children: [
-                      const Text(
-                        "Resume Preview (A4 Format)",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          "Print Ready",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(24), // Reduced margins to prevent overflow
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Header Section
-                          _buildResumeHeader(),
-                          
-                          const SizedBox(height: 20),
-                          
-                          // Sections in custom order
-                          ...sectionOrder.map((section) {
-                            switch (section) {
-                              case 'Skills':
-                                return Column(
-                                  children: [
-                                    _buildSkillsSection(),
-                                    const SizedBox(height: 20),
-                                  ],
-                                );
-                              case 'Experience':
-                                return Column(
-                                  children: [
-                                    _buildExperienceSection(),
-                                    const SizedBox(height: 20),
-                                  ],
-                                );
-                              case 'Projects':
-                                return Column(
-                                  children: [
-                                    _buildProjectsSection(),
-                                    const SizedBox(height: 20),
-                                  ],
-                                );
-                              case 'Education':
-                                return Column(
-                                  children: [
-                                    _buildEducationSection(),
-                                    const SizedBox(height: 20),
-                                  ],
-                                );
-                              case 'Achievements':
-                                return Column(
-                                  children: [
-                                    _buildAchievementsSection(),
-                                    const SizedBox(height: 20),
-                                  ],
-                                );
-                              case 'Strengths':
-                                return Column(
-                                  children: [
-                                    _buildStrengthsSection(),
-                                    const SizedBox(height: 20),
-                                  ],
-                                );
-                              default:
-                                // Check if it's a custom section
-                                var customSection = customSections.firstWhere(
-                                  (cs) => cs['id'] == section,
-                                  orElse: () => {},
-                                );
-                                if (customSection.isNotEmpty) {
-                                  return Column(
-                                    children: [
-                                      _buildCustomSection(customSection),
-                                      const SizedBox(height: 20),
-                                    ],
-                                  );
-                                }
-                                return const SizedBox();
-                            }
-                          }).toList(),
-                        ],
-                      ),
+                // Download PDF Button
+                Container(
+                  margin: const EdgeInsets.only(right: 12),
+                  child: ElevatedButton.icon(
+                    onPressed: _downloadAsPDF,
+                    icon: const Icon(Icons.download_rounded, size: 18),
+                    label: const Text(
+                      "Download PDF",
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                     ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6B8E7F),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 2,
+                      shadowColor: Colors.black.withOpacity(0.2),
+                    ),
+                  ),
+                ),
+                // Copy Link Button
+                ElevatedButton.icon(
+                  onPressed: _copyAsLink,
+                  icon: const Icon(Icons.share_rounded, size: 18),
+                  label: const Text(
+                    "Share Link",
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8E6B7F),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 2,
+                    shadowColor: Colors.black.withOpacity(0.2),
                   ),
                 ),
               ],
             ),
           ),
-        ),
+          
+          // A4 Preview Container
+          Expanded(
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.all(20),
+                constraints: const BoxConstraints(
+                  maxWidth: 600,
+                ),
+                child: AspectRatio(
+                  aspectRatio: 210 / 297, // A4 ratio
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                          spreadRadius: 0,
+                        ),
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                          spreadRadius: 0,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Column(
+                        children: [
+                          // Preview Header
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [const Color(0xFF6B8E7F).withOpacity(0.1), const Color(0xFF557A6E).withOpacity(0.05)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.description_outlined,
+                                  color: const Color(0xFF6B8E7F),
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  "A4 Format • Print Ready",
+                                  style: TextStyle(
+                                    color: Color(0xFF6B8E7F),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          
+                          // Resume Content
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Header Section
+                                  _buildResumeHeader(),
+                                  
+                                  const SizedBox(height: 20),
+                                  
+                                  // Sections in custom order
+                                  ...sectionOrder.map((section) {
+                                    switch (section) {
+                                      case 'Skills':
+                                        return Column(
+                                          children: [
+                                            _buildSkillsSection(),
+                                            const SizedBox(height: 20),
+                                          ],
+                                        );
+                                      case 'Experience':
+                                        return Column(
+                                          children: [
+                                            _buildExperienceSection(),
+                                            const SizedBox(height: 20),
+                                          ],
+                                        );
+                                      case 'Projects':
+                                        return Column(
+                                          children: [
+                                            _buildProjectsSection(),
+                                            const SizedBox(height: 20),
+                                          ],
+                                        );
+                                      case 'Education':
+                                        return Column(
+                                          children: [
+                                            _buildEducationSection(),
+                                            const SizedBox(height: 20),
+                                          ],
+                                        );
+                                      case 'Achievements':
+                                        return Column(
+                                          children: [
+                                            _buildAchievementsSection(),
+                                            const SizedBox(height: 20),
+                                          ],
+                                        );
+                                      case 'Strengths':
+                                        return Column(
+                                          children: [
+                                            _buildStrengthsSection(),
+                                            const SizedBox(height: 20),
+                                          ],
+                                        );
+                                      default:
+                                        // Check if it's a custom section
+                                        var customSection = customSections.firstWhere(
+                                          (cs) => cs['id'] == section,
+                                          orElse: () => {},
+                                        );
+                                        if (customSection.isNotEmpty) {
+                                          return Column(
+                                            children: [
+                                              _buildCustomSection(customSection),
+                                              const SizedBox(height: 20),
+                                            ],
+                                          );
+                                        }
+                                        return const SizedBox();
+                                    }
+                                  }).toList(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -611,6 +1778,466 @@ class _ResumeHomeState extends State<ResumeHome> {
     setState(() {
       data.strengths.removeAt(index);
     });
+  }
+
+  // Calculate ATS Score based on resume content
+  void _calculateATSScore() {
+    int score = 0;
+    List<String> recommendations = [];
+    
+    // Basic Contact Information (25 points)
+    if (data.name.isNotEmpty && data.name != "YOUR NAME") score += 5;
+    else recommendations.add("Add your full name");
+    
+    if (data.email.isNotEmpty && data.email.contains('@') && !data.email.contains("youremail")) score += 5;
+    else recommendations.add("Add a valid email address");
+    
+    if (data.phone.isNotEmpty && !data.phone.contains("1234567890")) score += 5;
+    else recommendations.add("Add your phone number");
+    
+    if ((data.street.isNotEmpty && !data.street.contains("Street")) || 
+        (data.city.isNotEmpty && !data.city.contains("City"))) score += 5;
+    else recommendations.add("Add your location details");
+    
+    if ((data.linkedin.isNotEmpty && !data.linkedin.contains("yourprofile")) || 
+        (data.github.isNotEmpty && !data.github.contains("yourprofile"))) score += 5;
+    else recommendations.add("Add LinkedIn or GitHub profile");
+    
+    // Skills Section (20 points)
+    List<String> allSkills = [
+      data.languages,
+      data.frameworks, 
+      data.tools,
+      data.others
+    ].where((skill) => skill.isNotEmpty).toList();
+    
+    if (allSkills.isNotEmpty) {
+      score += 10;
+      int skillCount = allSkills.join(',').split(',').length;
+      if (skillCount >= 5) score += 5;
+      else recommendations.add("Add more skills (at least 5)");
+      
+      // Check for technical keywords
+      String skillsText = allSkills.join(' ').toLowerCase();
+      List<String> techKeywords = ['python', 'java', 'javascript', 'react', 'node', 'sql', 'git', 'aws', 'docker', 'kubernetes', 'machine learning', 'data analysis', 'flutter', 'dart', 'c++', 'mongodb', 'mysql'];
+      int techCount = techKeywords.where((keyword) => skillsText.contains(keyword)).length;
+      if (techCount >= 3) score += 5;
+      else recommendations.add("Add more technical skills with industry keywords");
+    } else {
+      recommendations.add("Add skills section with relevant keywords");
+    }
+    
+    // Experience Section (25 points)
+    if (data.experiences.isNotEmpty) {
+      score += 10;
+      
+      // Check for job descriptions
+      bool hasDescriptions = data.experiences.any((exp) => exp.description.isNotEmpty && !exp.description.contains("Briefly describe"));
+      if (hasDescriptions) score += 8;
+      else recommendations.add("Add detailed job descriptions");
+      
+      // Check for quantifiable achievements
+      String expText = data.experiences.map((exp) => exp.description).join(' ');
+      RegExp numbers = RegExp(r'\d+');
+      if (numbers.hasMatch(expText)) score += 7;
+      else recommendations.add("Include quantifiable achievements (numbers, percentages)");
+    } else {
+      recommendations.add("Add work experience section");
+    }
+    
+    // Education Section (15 points)
+    bool hasEducation = (data.university.isNotEmpty && !data.university.contains("Your University")) ||
+                       (data.college.isNotEmpty && !data.college.contains("Your College")) ||
+                       (data.highSchool.isNotEmpty && !data.highSchool.contains("Your High School"));
+    
+    if (hasEducation) {
+      score += 10;
+      bool hasGraduation = data.universityDuration.isNotEmpty || data.collegeDuration.isNotEmpty || data.highSchoolDuration.isNotEmpty;
+      if (hasGraduation && !data.universityDuration.contains("Graduation Date")) score += 5;
+      else recommendations.add("Add graduation years for education");
+    } else {
+      recommendations.add("Add education section");
+    }
+    
+    // Projects Section (10 points)
+    if (data.projects.isNotEmpty) {
+      score += 5;
+      bool hasProjectDesc = data.projects.any((proj) => proj.description.isNotEmpty && !proj.description.contains("Briefly describe"));
+      if (hasProjectDesc) score += 5;
+      else recommendations.add("Add detailed project descriptions");
+    } else {
+      recommendations.add("Consider adding relevant projects");
+    }
+    
+    // Additional Sections (5 points)
+    if (data.achievements.isNotEmpty || data.strengths.isNotEmpty) {
+      score += 5;
+    }
+    
+    // Format and Structure Bonuses
+    if (data.name.length > 2 && !data.name.contains(RegExp(r'[^a-zA-Z\s]'))) score += 2;
+    if (data.email.toLowerCase() == data.email) score += 1;
+    int totalSkillCount = allSkills.join(',').split(',').length;
+    if (totalSkillCount >= 8) score += 2;
+    
+    // Set the calculated values
+    setState(() {
+      _atsScore = score;
+      _atsRecommendations = recommendations;
+      
+      if (score >= 90) {
+        _atsScoreText = "Excellent ATS compatibility";
+      } else if (score >= 75) {
+        _atsScoreText = "Good ATS compatibility";
+      } else if (score >= 60) {
+        _atsScoreText = "Fair ATS compatibility - needs improvement";
+      } else {
+        _atsScoreText = "Poor ATS compatibility - significant improvement needed";
+      }
+    });
+  }
+
+  void _showATSScoreDialog() {
+    // Calculate score first if not already calculated
+    if (_atsScore == 0) {
+      _calculateATSScore();
+    }
+    
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: 500,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+              maxWidth: 500,
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFE6F3FF),
+                  Color(0xFFF0F8FF),
+                  Color(0xFFE8F5E8),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                // Glassmorphism overlay
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withOpacity(0.2),
+                        Colors.white.withOpacity(0.1),
+                        Colors.transparent,
+                        Colors.white.withOpacity(0.1),
+                      ],
+                    ),
+                  ),
+                ),
+                // Main content - now scrollable
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Header with icon and title
+                      Container(
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+                          ),
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF8B5CF6).withOpacity(0.3),
+                              blurRadius: 15,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.analytics_outlined,
+                          size: 35,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'ATS Score Checker',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3748),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Analyze your resume\'s ATS compatibility',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: const Color(0xFF4A5568).withOpacity(0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      
+                      // Score Card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: LinearGradient(
+                                      colors: _atsScore >= 75 
+                                        ? [const Color(0xFF10B981), const Color(0xFF059669)]  // Green for good scores
+                                        : _atsScore >= 60 
+                                          ? [const Color(0xFFF59E0B), const Color(0xFFD97706)]  // Orange for fair scores
+                                          : [const Color(0xFFEF4444), const Color(0xFFDC2626)], // Red for poor scores
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: (_atsScore >= 75 
+                                          ? const Color(0xFF10B981)
+                                          : _atsScore >= 60 
+                                            ? const Color(0xFFF59E0B)
+                                            : const Color(0xFFEF4444)).withOpacity(0.3),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      "$_atsScore",
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        "ATS Score",
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF2D3748),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _atsScoreText,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF4A5568),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF7FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    "Recommendations:",
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF2D3748),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  if (_atsRecommendations.isEmpty)
+                                    const Row(
+                                      children: [
+                                        Icon(Icons.check_circle, color: Color(0xFF10B981), size: 16),
+                                        SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            "Excellent! Your resume meets all ATS requirements.",
+                                            style: TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  else
+                                    ..._atsRecommendations.take(3).map(
+                                      (recommendation) => Padding(
+                                        padding: const EdgeInsets.only(bottom: 6),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              recommendation.contains('Add') || recommendation.contains('Include') 
+                                                ? Icons.warning_rounded 
+                                                : Icons.info_outline,
+                                              color: recommendation.contains('Add') || recommendation.contains('Include')
+                                                ? const Color(0xFFF59E0B)
+                                                : const Color(0xFF3B82F6),
+                                              size: 16,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                recommendation,
+                                                style: const TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ).toList(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      
+                      // Action Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 44,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.of(context).pop();
+                                  _calculateATSScore();
+                                  // Show updated dialog
+                                  Future.delayed(const Duration(milliseconds: 300), () {
+                                    _showATSScoreDialog();
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: const Text("Resume analyzed! Updated ATS score calculated."),
+                                      backgroundColor: const Color(0xFF8B5CF6),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.refresh_rounded, size: 16),
+                                label: const Text(
+                                  "Re-analyze",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF8B5CF6),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 4,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SizedBox(
+                              height: 44,
+                              child: OutlinedButton.icon(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.close_rounded, size: 16),
+                                label: const Text(
+                                  "Close",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF6B8E7F),
+                                  side: const BorderSide(
+                                    color: Color(0xFF6B8E7F),
+                                    width: 1.5,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showExtraEditingDialog() {
@@ -926,6 +2553,132 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
           const SizedBox(height: 16),
           
+          // Add Custom Section button at top
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 12),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setDialogState(() {
+                  _showAddSectionForm = !_showAddSectionForm;
+                  if (_showAddSectionForm) {
+                    _newSectionNameController.clear();
+                    _newSectionContentController.clear();
+                  }
+                });
+              },
+              icon: Icon(_showAddSectionForm ? Icons.remove : Icons.add, size: 18),
+              label: Text(_showAddSectionForm ? 'Cancel' : 'Add Custom Section'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _showAddSectionForm ? const Color(0xFF718096) : const Color(0xFF6B8E7F),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+
+          // Add Section Form (shown below the button when active)
+          if (_showAddSectionForm)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FFF4),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFB8E6C1)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Create New Section",
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2D3748),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Section Name Input
+                  TextFormField(
+                    controller: _newSectionNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Section Name',
+                      hintText: 'e.g., Certifications, Languages, Hobbies',
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Section Content Input
+                  TextFormField(
+                    controller: _newSectionContentController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Section Content',
+                      hintText: 'Enter the content for this section...',
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Action Buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          setDialogState(() {
+                            _showAddSectionForm = false;
+                            _newSectionNameController.clear();
+                            _newSectionContentController.clear();
+                          });
+                        },
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          if (_newSectionNameController.text.trim().isNotEmpty) {
+                            setDialogState(() {
+                              customSections.add({
+                                'id': 'custom_${DateTime.now().millisecondsSinceEpoch}',
+                                'name': _newSectionNameController.text.trim(),
+                                'content': _newSectionContentController.text.trim().isEmpty 
+                                    ? 'Add your content here...' 
+                                    : _newSectionContentController.text.trim(),
+                              });
+                              sectionOrder.add(customSections.last['id']!);
+                              _showAddSectionForm = false;
+                              _newSectionNameController.clear();
+                              _newSectionContentController.clear();
+                            });
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6B8E7F),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Create Section'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          
           // Built-in sections
           const Text(
             "Built-in Sections",
@@ -985,39 +2738,14 @@ class _ResumeHomeState extends State<ResumeHome> {
           
           const SizedBox(height: 20),
           
-          // Custom sections
-          Row(
-            children: [
-              const Text(
-                "Custom Sections",
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF6B8E7F),
-                ),
-              ),
-              const Spacer(),
-              ElevatedButton.icon(
-                onPressed: () {
-                  setDialogState(() {
-                    customSections.add({
-                      'id': 'custom_${DateTime.now().millisecondsSinceEpoch}',
-                      'name': 'New Section',
-                      'content': 'Add your content here...',
-                    });
-                    sectionOrder.add(customSections.last['id']!);
-                  });
-                },
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Section'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6B8E7F),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  textStyle: const TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
+          // Custom sections header and list
+          const Text(
+            "Custom Sections",
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF6B8E7F),
+            ),
           ),
           const SizedBox(height: 12),
           
@@ -1315,18 +3043,16 @@ class _ResumeHomeState extends State<ResumeHome> {
                       ),
                     ),
                     pw.SizedBox(height: 8),
+                    // Build contact info row with bullets
                     pw.Text(
-                      '${data.email} • ${data.phone}',
+                      [
+                        data.email,
+                        if (data.linkedinName.trim().isNotEmpty) data.linkedinName,
+                        if (data.githubName.trim().isNotEmpty) data.githubName,
+                        data.phone,
+                      ].where((item) => item.trim().isNotEmpty).join(' • '),
                       style: pw.TextStyle(fontSize: bodyTextSize),
-                    ),
-                    if (data.linkedinName.isNotEmpty && data.githubName.isNotEmpty)
-                      pw.Text(
-                        '${data.linkedinName} • ${data.githubName}',
-                        style: pw.TextStyle(fontSize: bodyTextSize),
-                      ),
-                    pw.Text(
-                      '${data.street}, ${data.city}, ${data.zipCode}',
-                      style: pw.TextStyle(fontSize: bodyTextSize),
+                      textAlign: pw.TextAlign.center,
                     ),
                     pw.SizedBox(height: 12),
                     pw.Container(
@@ -1476,7 +3202,6 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (data.linkedinName.isNotEmpty && data.githubName.isNotEmpty) {
       text += '${data.linkedinName} • ${data.githubName}\n';
     }
-    text += '${data.street}, ${data.city}, ${data.zipCode}\n';
     text += '${'=' * 50}\n\n';
     
     // Sections
@@ -1609,13 +3334,66 @@ class _ResumeHomeState extends State<ResumeHome> {
         ),
         pw.SizedBox(height: 8),
         if (data.languages.isNotEmpty)
-          pw.Text('Languages: ${data.languages}', style: pw.TextStyle(fontSize: bodyTextSize)),
+          pw.RichText(
+            text: pw.TextSpan(
+              style: pw.TextStyle(fontSize: bodyTextSize),
+              children: [
+                pw.TextSpan(
+                  text: 'Languages:',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                ),
+                pw.TextSpan(text: ' ${data.languages}'),
+              ],
+            ),
+          ),
         if (data.frameworks.isNotEmpty)
-          pw.Text('Frameworks and Database: ${data.frameworks}', style: pw.TextStyle(fontSize: bodyTextSize)),
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 4),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                style: pw.TextStyle(fontSize: bodyTextSize),
+                children: [
+                  pw.TextSpan(
+                    text: 'Frameworks and Database:',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.TextSpan(text: ' ${data.frameworks}'),
+                ],
+              ),
+            ),
+          ),
         if (data.tools.isNotEmpty)
-          pw.Text('Tools and Technologies: ${data.tools}', style: pw.TextStyle(fontSize: bodyTextSize)),
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 4),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                style: pw.TextStyle(fontSize: bodyTextSize),
+                children: [
+                  pw.TextSpan(
+                    text: 'Tools and Technologies:',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.TextSpan(text: ' ${data.tools}'),
+                ],
+              ),
+            ),
+          ),
         if (data.others.isNotEmpty)
-          pw.Text('Others: ${data.others}', style: pw.TextStyle(fontSize: bodyTextSize)),
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 4),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                style: pw.TextStyle(fontSize: bodyTextSize),
+                children: [
+                  pw.TextSpan(
+                    text: 'Others:',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.TextSpan(text: ' ${data.others}'),
+                ],
+              ),
+            ),
+          ),
         pw.SizedBox(height: 20),
       ],
     );
@@ -1641,22 +3419,42 @@ class _ResumeHomeState extends State<ResumeHome> {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(
-                '${experience.companyName} - ${experience.jobTitle}',
-                style: pw.TextStyle(
-                  fontSize: bodyTextSize + 1,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+              // Company name and location row
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    experience.companyName,
+                    style: pw.TextStyle(
+                      fontSize: bodyTextSize + 1,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    experience.location,
+                    style: pw.TextStyle(fontSize: bodyTextSize),
+                  ),
+                ],
               ),
-              pw.Text(
-                '${experience.location} | ${experience.duration}',
-                style: pw.TextStyle(fontSize: bodyTextSize),
+              // Job title and duration row
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    experience.jobTitle,
+                    style: pw.TextStyle(
+                      fontSize: bodyTextSize,
+                      fontStyle: pw.FontStyle.italic,
+                    ),
+                  ),
+                  pw.Text(
+                    experience.duration,
+                    style: pw.TextStyle(fontSize: bodyTextSize),
+                  ),
+                ],
               ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                experience.description,
-                style: pw.TextStyle(fontSize: bodyTextSize),
-              ),
+              pw.SizedBox(height: 6),
+              _buildPDFBulletList(experience.description),
               pw.SizedBox(height: 12),
             ],
           );
@@ -1694,10 +3492,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                 ),
               ),
               pw.SizedBox(height: 4),
-              pw.Text(
-                project.description,
-                style: pw.TextStyle(fontSize: bodyTextSize),
-              ),
+              _buildPDFBulletList(project.description),
               pw.SizedBox(height: 12),
             ],
           );
@@ -1720,40 +3515,83 @@ class _ResumeHomeState extends State<ResumeHome> {
         ),
         pw.SizedBox(height: 8),
         if (data.university.trim().isNotEmpty)
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('${data.university} | GPA: ${data.universityGPA}', 
-                style: pw.TextStyle(fontSize: bodyTextSize + 1, fontWeight: pw.FontWeight.bold)),
-              pw.Text('${data.universityLocation} | ${data.universityDuration}',
-                style: pw.TextStyle(fontSize: bodyTextSize)),
-              pw.SizedBox(height: 8),
-            ],
-          ),
+          _buildPDFEducationItem(data.university, "GPA: ${data.universityGPA}", data.universityLocation, data.universityDuration),
         if (data.college.trim().isNotEmpty)
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('${data.college} | GPA: ${data.collegeGPA}', 
-                style: pw.TextStyle(fontSize: bodyTextSize + 1, fontWeight: pw.FontWeight.bold)),
-              pw.Text('${data.collegeLocation} | ${data.collegeDuration}',
-                style: pw.TextStyle(fontSize: bodyTextSize)),
-              pw.SizedBox(height: 8),
-            ],
-          ),
+          _buildPDFEducationItem(data.college, "GPA: ${data.collegeGPA}", data.collegeLocation, data.collegeDuration),
         if (data.highSchool.trim().isNotEmpty)
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('${data.highSchool} | GPA: ${data.highSchoolGPA}', 
-                style: pw.TextStyle(fontSize: bodyTextSize + 1, fontWeight: pw.FontWeight.bold)),
-              pw.Text('${data.highSchoolLocation} | ${data.highSchoolDuration}',
-                style: pw.TextStyle(fontSize: bodyTextSize)),
-              pw.SizedBox(height: 8),
-            ],
-          ),
+          _buildPDFEducationItem(data.highSchool, "GPA: ${data.highSchoolGPA}", data.highSchoolLocation, data.highSchoolDuration),
         pw.SizedBox(height: 12),
       ],
+    );
+  }
+
+  pw.Widget _buildPDFEducationItem(String institution, String gpa, String location, String duration) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 8),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          // Institution and location row
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Expanded(
+                child: pw.Text(
+                  institution,
+                  style: pw.TextStyle(
+                    fontSize: bodyTextSize + 1,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+              pw.Text(
+                location,
+                style: pw.TextStyle(fontSize: bodyTextSize),
+              ),
+            ],
+          ),
+          // GPA and duration row
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                gpa,
+                style: pw.TextStyle(
+                  fontSize: bodyTextSize,
+                  fontStyle: pw.FontStyle.italic,
+                ),
+              ),
+              pw.Text(
+                duration,
+                style: pw.TextStyle(fontSize: bodyTextSize),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildPDFBulletList(String text) {
+    if (text.trim().isEmpty) return pw.SizedBox();
+    final lines = text.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+    if (lines.isEmpty) return pw.SizedBox();
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: lines.map((line) {
+        return pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: 4),
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('• ', style: pw.TextStyle(fontSize: bodyTextSize)),
+              pw.Expanded(
+                child: pw.Text(line, style: pw.TextStyle(fontSize: bodyTextSize)),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -1776,13 +3614,29 @@ class _ResumeHomeState extends State<ResumeHome> {
         ...data.achievements.where((ach) => ach.trim().isNotEmpty).map((achievement) {
           return pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 4),
-            child: pw.Text(
-              '• $achievement',
-              style: pw.TextStyle(fontSize: bodyTextSize),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Container(
+                  width: 6,
+                  height: 6,
+                  margin: const pw.EdgeInsets.only(top: 6, right: 6),
+                  decoration: const pw.BoxDecoration(
+                    shape: pw.BoxShape.circle,
+                    color: PdfColors.black,
+                  ),
+                ),
+                pw.Expanded(
+                  child: pw.Text(
+                    achievement,
+                    style: pw.TextStyle(fontSize: bodyTextSize),
+                  ),
+                ),
+              ],
             ),
           );
         }).toList(),
-        pw.SizedBox(height: 20),
+        pw.SizedBox(height: 8),
       ],
     );
   }
@@ -1806,13 +3660,29 @@ class _ResumeHomeState extends State<ResumeHome> {
         ...data.strengths.where((str) => str.trim().isNotEmpty).map((strength) {
           return pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 4),
-            child: pw.Text(
-              '• $strength',
-              style: pw.TextStyle(fontSize: bodyTextSize),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Container(
+                  width: 6,
+                  height: 6,
+                  margin: const pw.EdgeInsets.only(top: 6, right: 6),
+                  decoration: const pw.BoxDecoration(
+                    shape: pw.BoxShape.circle,
+                    color: PdfColors.black,
+                  ),
+                ),
+                pw.Expanded(
+                  child: pw.Text(
+                    strength,
+                    style: pw.TextStyle(fontSize: bodyTextSize),
+                  ),
+                ),
+              ],
             ),
           );
         }).toList(),
-        pw.SizedBox(height: 20),
+        pw.SizedBox(height: 8),
       ],
     );
   }
@@ -1875,20 +3745,6 @@ class _ResumeHomeState extends State<ResumeHome> {
           ],
         ),
         
-        const SizedBox(height: 8),
-        
-        // Address
-        Text(
-          "${data.street}, ${data.city}, ${data.zipCode}",
-          style: TextStyle(
-            fontSize: bodyTextSize,
-            color: bodyTextColor,
-          ),
-          textAlign: TextAlign.center,
-          softWrap: true,
-          overflow: TextOverflow.visible,
-        ),
-        
         // Line separator
         const SizedBox(height: 12),
         Container(
@@ -1903,29 +3759,14 @@ class _ResumeHomeState extends State<ResumeHome> {
   Widget _contactItem(String icon, String text, Color color, {bool isClickable = false, String? url}) {
     if (text.trim().isEmpty) return const SizedBox();
     
-    Widget textWidget = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (icon.isNotEmpty) ...[
-          Text(
-            icon,
-            style: TextStyle(fontSize: bodyTextSize),
-          ),
-          const SizedBox(width: 4),
-        ],
-        Flexible(
-          child: Text(
-            text,
-            style: TextStyle(
-              fontSize: bodyTextSize,
-              color: color,
-              fontWeight: FontWeight.w500,
-              decoration: isClickable ? TextDecoration.underline : TextDecoration.none,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+    Widget textWidget = Text(
+      text,
+      style: TextStyle(
+        fontSize: bodyTextSize,
+        color: color,
+        decoration: isClickable ? TextDecoration.underline : TextDecoration.none,
+      ),
+      overflow: TextOverflow.ellipsis,
     );
     
     if (isClickable && url != null && url.isNotEmpty) {
@@ -1936,7 +3777,6 @@ class _ResumeHomeState extends State<ResumeHome> {
             if (await canLaunchUrl(uri)) {
               await launchUrl(uri);
             } else {
-              // Show error dialog if URL can't be launched
               if (context.mounted) {
                 showDialog(
                   context: context,
@@ -1954,7 +3794,6 @@ class _ResumeHomeState extends State<ResumeHome> {
               }
             }
           } catch (e) {
-            // Show error dialog for invalid URLs
             if (context.mounted) {
               showDialog(
                 context: context,
@@ -2305,18 +4144,28 @@ class _ResumeHomeState extends State<ResumeHome> {
   Widget _addButton(String text, VoidCallback onPressed) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       child: OutlinedButton.icon(
         onPressed: onPressed,
         icon: const Icon(Icons.add, size: 18),
-        label: Text(text),
+        label: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         style: OutlinedButton.styleFrom(
           foregroundColor: const Color(0xFF6B8E7F),
-          side: const BorderSide(color: Color(0xFF6B8E7F)),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(
+            color: Color(0xFF6B8E7F),
+            width: 1.5,
           ),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          surfaceTintColor: const Color(0xFF6B8E7F).withOpacity(0.05),
         ),
       ),
     );
@@ -2338,39 +4187,55 @@ class _ResumeHomeState extends State<ResumeHome> {
 
   Widget _customTextField(String label, Function(String) onChanged, {int lines = 1}) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       child: TextField(
         maxLines: lines,
         onChanged: onChanged,
         style: const TextStyle(
           color: Color(0xFF2D3748),
           fontSize: 14,
+          height: 1.5,
         ),
         decoration: InputDecoration(
           labelText: label,
           labelStyle: const TextStyle(
             color: Color(0xFF718096),
-            fontSize: 14,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(
-              color: Color(0xFFB8E6C1),
-              width: 1,
+              color: Color(0xFFE2E8F0),
+              width: 1.5,
             ),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(
               color: Color(0xFF6B8E7F),
               width: 2,
             ),
           ),
           filled: true,
-          fillColor: const Color(0xFFF0FFF4),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
+          fillColor: const Color(0xFFFAFBFC),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(
+              color: Colors.redAccent,
+              width: 1.5,
+            ),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(
+              color: Colors.red,
+              width: 2,
+            ),
           ),
         ),
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'main.dart';
+import 'registerscreen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -468,7 +469,13 @@ class _LoginScreenState extends State<LoginScreen>
           width: double.infinity,
           height: 48,
           child: ElevatedButton(
-            onPressed: _showSignUpDialog,
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const RegisterScreen(),
+                ),
+              );
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6B8E7F),
               foregroundColor: Colors.white,
@@ -543,6 +550,9 @@ class _LoginScreenState extends State<LoginScreen>
           TextFormField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.next,
             decoration: InputDecoration(
               hintText: 'Email',
               prefixIcon: const Icon(
@@ -584,6 +594,9 @@ class _LoginScreenState extends State<LoginScreen>
           TextFormField(
             controller: _passwordController,
             obscureText: !_isPasswordVisible,
+            enableSuggestions: false,
+            autocorrect: false,
+            textInputAction: TextInputAction.done,
             decoration: InputDecoration(
               hintText: 'Password',
               prefixIcon: const Icon(

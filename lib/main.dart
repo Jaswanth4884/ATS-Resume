@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:country_code_picker/country_code_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -37,17 +38,18 @@ class ResumeHome extends StatefulWidget {
 
 class _ResumeHomeState extends State<ResumeHome> {
   ResumeData data = ResumeData();
-  
+  final Map<String, TextEditingController> _fieldControllers = {};
+
   // Section ordering
   List<String> sectionOrder = [
     'Skills',
-    'Experience', 
+    'Experience',
     'Projects',
     'Education',
     'Achievements',
     'Strengths',
   ];
-  
+
   // Formatting options
   double nameTextSize = 20.0;
   double sectionHeaderSize = 14.0;
@@ -56,7 +58,7 @@ class _ResumeHomeState extends State<ResumeHome> {
   Color sectionHeaderColor = const Color(0xFF2D3748);
   Color bodyTextColor = const Color(0xFF2D3748);
   Color contactLinkColor = Colors.blue;
-  
+
   // Custom section names
   String skillsSectionName = "SKILLS";
   String experienceSectionName = "Experience";
@@ -64,15 +66,28 @@ class _ResumeHomeState extends State<ResumeHome> {
   String educationSectionName = "EDUCATION";
   String achievementsSectionName = "Achievements";
   String strengthsSectionName = "Strengths";
-  
+
+  // Skill subcategory headings (users can rename these)
+  String skillsLanguagesLabel = "Languages:";
+  String skillsFrameworksLabel = "Frameworks and Database:";
+  String skillsToolsLabel = "Tools and Technologies:";
+  String skillsOthersLabel = "Others:";
+  List<Map<String, String>> extraSkillRows = [];
+  String _selectedPhoneCountryIso = 'IN';
+  String _selectedPhoneCountryName = 'India';
+  String _selectedPhoneCountryCode = '+91';
+
   // Custom sections (user-added)
   List<Map<String, String>> customSections = [];
-  
+
   // Add section form state
   bool _showAddSectionForm = false;
-  final TextEditingController _newSectionNameController = TextEditingController();
-  final TextEditingController _newSectionContentController = TextEditingController();
-  
+  String? _sectionToAddFromOrder;
+  final TextEditingController _newSectionNameController =
+      TextEditingController();
+  final TextEditingController _newSectionContentController =
+      TextEditingController();
+
   // Collapsible state for all sections
   bool isPersonalExpanded = true;
   bool isSkillsExpanded = true;
@@ -88,10 +103,94 @@ class _ResumeHomeState extends State<ResumeHome> {
   String _atsScoreText = "Not analyzed";
 
   @override
+  void initState() {
+    super.initState();
+    _syncPhoneCountryFromPhone();
+  }
+
+  @override
   void dispose() {
+    for (final controller in _fieldControllers.values) {
+      controller.dispose();
+    }
     _newSectionNameController.dispose();
     _newSectionContentController.dispose();
     super.dispose();
+  }
+
+  TextEditingController _getFieldController(String key, String value) {
+    final existing = _fieldControllers[key];
+    if (existing != null) {
+      if (existing.text.isEmpty && value.isNotEmpty) {
+        existing.text = value;
+      }
+      return existing;
+    }
+
+    final controller = TextEditingController(text: value);
+    _fieldControllers[key] = controller;
+    return controller;
+  }
+
+  void _clearFieldControllersByPrefix(String prefix) {
+    final keysToRemove = _fieldControllers.keys
+        .where((key) => key.startsWith(prefix))
+        .toList();
+    for (final key in keysToRemove) {
+      _fieldControllers.remove(key)?.dispose();
+    }
+  }
+
+  List<Map<String, String>> _getSkillRows() {
+    return [
+      {'heading': skillsLanguagesLabel, 'skills': data.languages},
+      {'heading': skillsFrameworksLabel, 'skills': data.frameworks},
+      {'heading': skillsToolsLabel, 'skills': data.tools},
+      {'heading': skillsOthersLabel, 'skills': data.others},
+      ...extraSkillRows,
+    ];
+  }
+
+  void _addExtraSkillRow() {
+    setState(() {
+      extraSkillRows.add({'heading': '', 'skills': ''});
+    });
+  }
+
+  void _removeExtraSkillRow(int index) {
+    setState(() {
+      extraSkillRows.removeAt(index);
+      _clearFieldControllersByPrefix('skills.extra.');
+    });
+  }
+
+  void _setPhoneCountry(CountryCode country) {
+    _selectedPhoneCountryIso = country.code ?? 'IN';
+    _selectedPhoneCountryName = country.name ?? 'India';
+    _selectedPhoneCountryCode = country.dialCode ?? '+91';
+  }
+
+  void _syncPhoneCountryFromPhone() {
+    final phone = data.phone.trim();
+    final dialCodeMatch = RegExp(r'^\+\d+').stringMatch(phone);
+    if (dialCodeMatch != null) {
+      final country = CountryCode.tryFromDialCode(dialCodeMatch);
+      if (country != null) {
+        _setPhoneCountry(country);
+        data.phone = phone
+            .substring(dialCodeMatch.length)
+            .replaceFirst(RegExp(r'^[\s\-]+'), '');
+        return;
+      }
+    }
+
+    _setPhoneCountry(CountryCode.fromCountryCode(_selectedPhoneCountryIso));
+  }
+
+  String _formattedPhone() {
+    final phone = data.phone.trim();
+    if (phone.isEmpty) return '';
+    return '$_selectedPhoneCountryCode $phone';
   }
 
   @override
@@ -126,22 +225,13 @@ class _ResumeHomeState extends State<ResumeHome> {
           return Row(
             children: [
               // LEFT — RESUME FORM (50%)
-              Expanded(
-                flex: 1,
-                child: _buildFormSection(),
-              ),
-              
+              Expanded(flex: 1, child: _buildFormSection()),
+
               // DIVIDER
-              Container(
-                width: 1,
-                color: const Color(0xFFE2E8F0),
-              ),
-              
+              Container(width: 1, color: const Color(0xFFE2E8F0)),
+
               // RIGHT — PREVIEW SECTION (50%)
-              Expanded(
-                flex: 1,
-                child: _buildPreviewSection(),
-              ),
+              Expanded(flex: 1, child: _buildPreviewSection()),
             ],
           );
         },
@@ -182,7 +272,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8B5CF6),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -197,7 +290,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6B8E7F),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -207,7 +303,7 @@ class _ResumeHomeState extends State<ResumeHome> {
               ],
             ),
           ),
-          
+
           // Scrollable Form Content
           Expanded(
             child: SingleChildScrollView(
@@ -284,14 +380,314 @@ class _ResumeHomeState extends State<ResumeHome> {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               children: [
-                _modernTextField("Full Name", Icons.person, (v) => setState(() => data.name = v)),
-                _modernTextField("Phone", Icons.phone, (v) => setState(() => data.phone = v)),
-                _modernTextField("Email", Icons.email, (v) => setState(() => data.email = v)),
-                _modernTextField("LinkedIn URL", Icons.link, (v) => setState(() => data.linkedin = v)),
-                _modernTextField("LinkedIn Display Name", Icons.business, (v) => setState(() => data.linkedinName = v)),
-                _modernTextField("GitHub URL", Icons.code, (v) => setState(() => data.github = v)),
-                _modernTextField("GitHub Display Name", Icons.code_outlined, (v) => setState(() => data.githubName = v)),
+                _modernTextField(
+                  "Full Name",
+                  Icons.person,
+                  (v) => setState(() => data.name = v),
+                  fieldKey: 'personal.name',
+                  initialValue: data.name,
+                ),
+                _buildPhoneField(),
+                _modernTextField(
+                  "Email",
+                  Icons.email,
+                  (v) => setState(() => data.email = v),
+                  fieldKey: 'personal.email',
+                  initialValue: data.email,
+                ),
+                _modernTextField(
+                  "LinkedIn URL",
+                  Icons.link,
+                  (v) => setState(() => data.linkedin = v),
+                  fieldKey: 'personal.linkedin',
+                  initialValue: data.linkedin,
+                ),
+                _modernTextField(
+                  "LinkedIn Display Name",
+                  Icons.business,
+                  (v) => setState(() => data.linkedinName = v),
+                  fieldKey: 'personal.linkedinName',
+                  initialValue: data.linkedinName,
+                ),
+                _modernTextField(
+                  "GitHub URL",
+                  Icons.code,
+                  (v) => setState(() => data.github = v),
+                  fieldKey: 'personal.github',
+                  initialValue: data.github,
+                ),
+                _modernTextField(
+                  "GitHub Display Name",
+                  Icons.code_outlined,
+                  (v) => setState(() => data.githubName = v),
+                  fieldKey: 'personal.githubName',
+                  initialValue: data.githubName,
+                ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkillsTableHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: const [
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Text(
+                'Sub Heading',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF4A5568),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Text(
+                'Skills',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF4A5568),
+                ),
+              ),
+            ),
+          ),
+          SizedBox(width: 40),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkillInputField({
+    required String fieldKey,
+    required String initialValue,
+    required String hintText,
+    required ValueChanged<String> onChanged,
+    bool compact = false,
+  }) {
+    final controller = _getFieldController(fieldKey, initialValue);
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      style: const TextStyle(
+        color: Color(0xFF2D3748),
+        fontSize: 14,
+        height: 1.4,
+      ),
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: const TextStyle(
+          color: Color(0xFF718096),
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: compact ? 12 : 14,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF6B8E7F), width: 2),
+        ),
+        filled: true,
+        fillColor: compact ? const Color(0xFFFAFBFC) : const Color(0xFFF7FAFC),
+      ),
+    );
+  }
+
+  Widget _buildSkillEditorRow({
+    required String headingFieldKey,
+    required String headingValue,
+    required String headingHint,
+    required String skillsFieldKey,
+    required String skillsValue,
+    required String skillsHint,
+    required ValueChanged<String> onHeadingChanged,
+    required ValueChanged<String> onSkillsChanged,
+    VoidCallback? onRemove,
+    bool compact = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _buildSkillInputField(
+                fieldKey: headingFieldKey,
+                initialValue: headingValue,
+                hintText: headingHint,
+                onChanged: onHeadingChanged,
+                compact: compact,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: _buildSkillInputField(
+                fieldKey: skillsFieldKey,
+                initialValue: skillsValue,
+                hintText: skillsHint,
+                onChanged: onSkillsChanged,
+                compact: compact,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 40,
+            child: onRemove == null
+                ? const SizedBox()
+                : IconButton(
+                    onPressed: onRemove,
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    tooltip: 'Remove skill row',
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneField({bool compact = false}) {
+    final phoneController = _getFieldController('personal.phone', data.phone);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(left: 2, bottom: 6),
+                  child: Text(
+                    'Code',
+                    style: TextStyle(
+                      color: Color(0xFF718096),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: compact
+                        ? const Color(0xFFFAFBFC)
+                        : const Color(0xFFF7FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFFE2E8F0),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: CountryCodePicker(
+                    onChanged: (country) {
+                      setState(() {
+                        _setPhoneCountry(country);
+                      });
+                    },
+                    onInit: (country) {
+                      if (country == null) return;
+                      _setPhoneCountry(country);
+                    },
+                    initialSelection: _selectedPhoneCountryIso,
+                    favorite: const ['+91', 'US', 'GB', 'AE'],
+                    showCountryOnly: false,
+                    showOnlyCountryWhenClosed: false,
+                    showDropDownButton: true,
+                    showFlag: false,
+                    showFlagDialog: true,
+                    hideMainText: false,
+                    alignLeft: true,
+                    hideSearch: false,
+                    searchDecoration: InputDecoration(
+                      hintText: 'Search country',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 10,
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF2D3748),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 7,
+            child: TextField(
+              controller: phoneController,
+              onChanged: (value) => setState(() => data.phone = value),
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xFF2D3748),
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                labelText: 'Phone Number',
+                prefixIcon: Icon(
+                  Icons.phone,
+                  color: const Color(0xFF6B8E7F),
+                  size: compact ? 18 : 20,
+                ),
+                labelStyle: const TextStyle(
+                  color: Color(0xFF718096),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFE2E8F0),
+                    width: 1.5,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF6B8E7F),
+                    width: 2,
+                  ),
+                ),
+                filled: true,
+                fillColor: compact
+                    ? const Color(0xFFFAFBFC)
+                    : const Color(0xFFF7FAFC),
+              ),
             ),
           ),
         ],
@@ -346,10 +742,72 @@ class _ResumeHomeState extends State<ResumeHome> {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               children: [
-                _modernTextField("Languages", Icons.language, (v) => setState(() => data.languages = v)),
-                _modernTextField("Frameworks and Databases", Icons.storage, (v) => setState(() => data.frameworks = v)),
-                _modernTextField("Tools and Technologies", Icons.build, (v) => setState(() => data.tools = v)),
-                _modernTextField("Others", Icons.more_horiz, (v) => setState(() => data.others = v)),
+                _buildSkillsTableHeader(),
+                _buildSkillEditorRow(
+                  headingFieldKey: 'skills.languages.heading',
+                  headingValue: skillsLanguagesLabel,
+                  headingHint: 'Languages',
+                  skillsFieldKey: 'skills.languages.items',
+                  skillsValue: data.languages,
+                  skillsHint: 'Add languages',
+                  onHeadingChanged: (v) =>
+                      setState(() => skillsLanguagesLabel = v),
+                  onSkillsChanged: (v) => setState(() => data.languages = v),
+                ),
+                _buildSkillEditorRow(
+                  headingFieldKey: 'skills.frameworks.heading',
+                  headingValue: skillsFrameworksLabel,
+                  headingHint: 'Frameworks and databases',
+                  skillsFieldKey: 'skills.frameworks.items',
+                  skillsValue: data.frameworks,
+                  skillsHint: 'Add frameworks and databases',
+                  onHeadingChanged: (v) =>
+                      setState(() => skillsFrameworksLabel = v),
+                  onSkillsChanged: (v) => setState(() => data.frameworks = v),
+                ),
+                _buildSkillEditorRow(
+                  headingFieldKey: 'skills.tools.heading',
+                  headingValue: skillsToolsLabel,
+                  headingHint: 'Tools and technologies',
+                  skillsFieldKey: 'skills.tools.items',
+                  skillsValue: data.tools,
+                  skillsHint: 'Add tools and technologies',
+                  onHeadingChanged: (v) => setState(() => skillsToolsLabel = v),
+                  onSkillsChanged: (v) => setState(() => data.tools = v),
+                ),
+                _buildSkillEditorRow(
+                  headingFieldKey: 'skills.others.heading',
+                  headingValue: skillsOthersLabel,
+                  headingHint: 'Others',
+                  skillsFieldKey: 'skills.others.items',
+                  skillsValue: data.others,
+                  skillsHint: 'Add other skills',
+                  onHeadingChanged: (v) =>
+                      setState(() => skillsOthersLabel = v),
+                  onSkillsChanged: (v) => setState(() => data.others = v),
+                ),
+                ...extraSkillRows.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final row = entry.value;
+                  return _buildSkillEditorRow(
+                    headingFieldKey: 'skills.extra.$index.heading',
+                    headingValue: row['heading'] ?? '',
+                    headingHint: 'Custom sub heading',
+                    skillsFieldKey: 'skills.extra.$index.items',
+                    skillsValue: row['skills'] ?? '',
+                    skillsHint: 'Add skills for this sub heading',
+                    onHeadingChanged: (v) =>
+                        setState(() => extraSkillRows[index]['heading'] = v),
+                    onSkillsChanged: (v) =>
+                        setState(() => extraSkillRows[index]['skills'] = v),
+                    onRemove: () => _removeExtraSkillRow(index),
+                  );
+                }),
+                _modernAddButton(
+                  'Add Extra Skill / Subheading',
+                  Icons.edit_note,
+                  _addExtraSkillRow,
+                ),
               ],
             ),
           ),
@@ -358,10 +816,19 @@ class _ResumeHomeState extends State<ResumeHome> {
     );
   }
 
-  Widget _modernTextField(String label, IconData icon, Function(String) onChanged, {int lines = 1}) {
+  Widget _modernTextField(
+    String label,
+    IconData icon,
+    Function(String) onChanged, {
+    int lines = 1,
+    required String fieldKey,
+    required String initialValue,
+  }) {
+    final controller = _getFieldController(fieldKey, initialValue);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       child: TextField(
+        controller: controller,
         maxLines: lines,
         onChanged: onChanged,
         style: const TextStyle(
@@ -371,11 +838,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         ),
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(
-            icon,
-            color: const Color(0xFF6B8E7F),
-            size: 20,
-          ),
+          prefixIcon: Icon(icon, color: const Color(0xFF6B8E7F), size: 20),
           labelStyle: const TextStyle(
             color: Color(0xFF718096),
             fontSize: 14,
@@ -387,33 +850,21 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Color(0xFFE2E8F0),
-              width: 1.5,
-            ),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Color(0xFF6B8E7F),
-              width: 2,
-            ),
+            borderSide: const BorderSide(color: Color(0xFF6B8E7F), width: 2),
           ),
           filled: true,
           fillColor: const Color(0xFFF7FAFC),
           errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Colors.redAccent,
-              width: 1.5,
-            ),
+            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
           ),
           focusedErrorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Colors.red,
-              width: 2,
-            ),
+            borderSide: const BorderSide(color: Colors.red, width: 2),
           ),
         ),
       ),
@@ -495,22 +946,61 @@ class _ResumeHomeState extends State<ResumeHome> {
                             if (data.experiences.length > 1)
                               IconButton(
                                 onPressed: () => _removeExperience(index),
-                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
                                 tooltip: 'Remove Experience',
                               ),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _modernTextField("Company Name", Icons.business, (v) => setState(() => experience.companyName = v)),
-                        _modernTextField("Job Title", Icons.work, (v) => setState(() => experience.jobTitle = v)),
-                        _modernTextField("Location", Icons.location_on, (v) => setState(() => experience.location = v)),
-                        _modernTextField("Duration", Icons.schedule, (v) => setState(() => experience.duration = v)),
-                        _modernTextField("Description", Icons.description, (v) => setState(() => experience.description = v), lines: 3),
+                        _modernTextField(
+                          "Company Name",
+                          Icons.business,
+                          (v) => setState(() => experience.companyName = v),
+                          fieldKey: 'experience.$index.companyName',
+                          initialValue: experience.companyName,
+                        ),
+                        _modernTextField(
+                          "Job Title",
+                          Icons.work,
+                          (v) => setState(() => experience.jobTitle = v),
+                          fieldKey: 'experience.$index.jobTitle',
+                          initialValue: experience.jobTitle,
+                        ),
+                        _modernTextField(
+                          "Location",
+                          Icons.location_on,
+                          (v) => setState(() => experience.location = v),
+                          fieldKey: 'experience.$index.location',
+                          initialValue: experience.location,
+                        ),
+                        _modernTextField(
+                          "Duration",
+                          Icons.schedule,
+                          (v) => setState(() => experience.duration = v),
+                          fieldKey: 'experience.$index.duration',
+                          initialValue: experience.duration,
+                        ),
+                        _modernTextField(
+                          "Description",
+                          Icons.description,
+                          (v) => setState(() => experience.description = v),
+                          lines: 3,
+                          fieldKey: 'experience.$index.description',
+                          initialValue: experience.description,
+                        ),
                       ],
                     ),
                   );
                 }).toList(),
-                _modernAddButton("Add Experience", Icons.add_business, _addExperience),
+                _modernAddButton(
+                  "Add Experience",
+                  Icons.add_business,
+                  _addExperience,
+                ),
               ],
             ),
           ),
@@ -594,14 +1084,31 @@ class _ResumeHomeState extends State<ResumeHome> {
                             if (data.projects.length > 1)
                               IconButton(
                                 onPressed: () => _removeProject(index),
-                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
                                 tooltip: 'Remove Project',
                               ),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _modernTextField("Project Title", Icons.title, (v) => setState(() => project.title = v)),
-                        _modernTextField("Project Description", Icons.description, (v) => setState(() => project.description = v), lines: 3),
+                        _modernTextField(
+                          "Project Title",
+                          Icons.title,
+                          (v) => setState(() => project.title = v),
+                          fieldKey: 'project.$index.title',
+                          initialValue: project.title,
+                        ),
+                        _modernTextField(
+                          "Project Description",
+                          Icons.description,
+                          (v) => setState(() => project.description = v),
+                          lines: 3,
+                          fieldKey: 'project.$index.description',
+                          initialValue: project.description,
+                        ),
                       ],
                     ),
                   );
@@ -683,10 +1190,34 @@ class _ResumeHomeState extends State<ResumeHome> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _modernTextField("University Name", Icons.account_balance, (v) => setState(() => data.university = v)),
-                      _modernTextField("University GPA", Icons.grade, (v) => setState(() => data.universityGPA = v)),
-                      _modernTextField("University Location", Icons.location_on, (v) => setState(() => data.universityLocation = v)),
-                      _modernTextField("University Duration", Icons.schedule, (v) => setState(() => data.universityDuration = v)),
+                      _modernTextField(
+                        "University Name",
+                        Icons.account_balance,
+                        (v) => setState(() => data.university = v),
+                        fieldKey: 'education.university.name',
+                        initialValue: data.university,
+                      ),
+                      _modernTextField(
+                        "University GPA",
+                        Icons.grade,
+                        (v) => setState(() => data.universityGPA = v),
+                        fieldKey: 'education.university.gpa',
+                        initialValue: data.universityGPA,
+                      ),
+                      _modernTextField(
+                        "University Location",
+                        Icons.location_on,
+                        (v) => setState(() => data.universityLocation = v),
+                        fieldKey: 'education.university.location',
+                        initialValue: data.universityLocation,
+                      ),
+                      _modernTextField(
+                        "University Duration",
+                        Icons.schedule,
+                        (v) => setState(() => data.universityDuration = v),
+                        fieldKey: 'education.university.duration',
+                        initialValue: data.universityDuration,
+                      ),
                     ],
                   ),
                 ),
@@ -711,10 +1242,34 @@ class _ResumeHomeState extends State<ResumeHome> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _modernTextField("College Name", Icons.school, (v) => setState(() => data.college = v)),
-                      _modernTextField("College GPA", Icons.grade, (v) => setState(() => data.collegeGPA = v)),
-                      _modernTextField("College Location", Icons.location_on, (v) => setState(() => data.collegeLocation = v)),
-                      _modernTextField("College Duration", Icons.schedule, (v) => setState(() => data.collegeDuration = v)),
+                      _modernTextField(
+                        "College Name",
+                        Icons.school,
+                        (v) => setState(() => data.college = v),
+                        fieldKey: 'education.college.name',
+                        initialValue: data.college,
+                      ),
+                      _modernTextField(
+                        "College GPA",
+                        Icons.grade,
+                        (v) => setState(() => data.collegeGPA = v),
+                        fieldKey: 'education.college.gpa',
+                        initialValue: data.collegeGPA,
+                      ),
+                      _modernTextField(
+                        "College Location",
+                        Icons.location_on,
+                        (v) => setState(() => data.collegeLocation = v),
+                        fieldKey: 'education.college.location',
+                        initialValue: data.collegeLocation,
+                      ),
+                      _modernTextField(
+                        "College Duration",
+                        Icons.schedule,
+                        (v) => setState(() => data.collegeDuration = v),
+                        fieldKey: 'education.college.duration',
+                        initialValue: data.collegeDuration,
+                      ),
                     ],
                   ),
                 ),
@@ -739,10 +1294,34 @@ class _ResumeHomeState extends State<ResumeHome> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _modernTextField("High School Name", Icons.school, (v) => setState(() => data.highSchool = v)),
-                      _modernTextField("High School GPA", Icons.grade, (v) => setState(() => data.highSchoolGPA = v)),
-                      _modernTextField("High School Location", Icons.location_on, (v) => setState(() => data.highSchoolLocation = v)),
-                      _modernTextField("High School Duration", Icons.schedule, (v) => setState(() => data.highSchoolDuration = v)),
+                      _modernTextField(
+                        "High School Name",
+                        Icons.school,
+                        (v) => setState(() => data.highSchool = v),
+                        fieldKey: 'education.highSchool.name',
+                        initialValue: data.highSchool,
+                      ),
+                      _modernTextField(
+                        "High School GPA",
+                        Icons.grade,
+                        (v) => setState(() => data.highSchoolGPA = v),
+                        fieldKey: 'education.highSchool.gpa',
+                        initialValue: data.highSchoolGPA,
+                      ),
+                      _modernTextField(
+                        "High School Location",
+                        Icons.location_on,
+                        (v) => setState(() => data.highSchoolLocation = v),
+                        fieldKey: 'education.highSchool.location',
+                        initialValue: data.highSchoolLocation,
+                      ),
+                      _modernTextField(
+                        "High School Duration",
+                        Icons.schedule,
+                        (v) => setState(() => data.highSchoolDuration = v),
+                        fieldKey: 'education.highSchool.duration',
+                        initialValue: data.highSchoolDuration,
+                      ),
                     ],
                   ),
                 ),
@@ -808,19 +1387,33 @@ class _ResumeHomeState extends State<ResumeHome> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: _modernTextField("Achievement ${index + 1}", Icons.star_outline, (v) => setState(() => data.achievements[index] = v)),
+                          child: _modernTextField(
+                            "Achievement ${index + 1}",
+                            Icons.star_outline,
+                            (v) => setState(() => data.achievements[index] = v),
+                            fieldKey: 'achievement.$index',
+                            initialValue: data.achievements[index],
+                          ),
                         ),
                         if (data.achievements.length > 1)
                           IconButton(
                             onPressed: () => _removeAchievement(index),
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                              size: 20,
+                            ),
                             tooltip: 'Remove Achievement',
                           ),
                       ],
                     ),
                   );
                 }).toList(),
-                _modernAddButton("Add Achievement", Icons.add_circle_outline, _addAchievement),
+                _modernAddButton(
+                  "Add Achievement",
+                  Icons.add_circle_outline,
+                  _addAchievement,
+                ),
               ],
             ),
           ),
@@ -883,19 +1476,33 @@ class _ResumeHomeState extends State<ResumeHome> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: _modernTextField("Strength ${index + 1}", Icons.psychology, (v) => setState(() => data.strengths[index] = v)),
+                          child: _modernTextField(
+                            "Strength ${index + 1}",
+                            Icons.psychology,
+                            (v) => setState(() => data.strengths[index] = v),
+                            fieldKey: 'strength.$index',
+                            initialValue: data.strengths[index],
+                          ),
                         ),
                         if (data.strengths.length > 1)
                           IconButton(
                             onPressed: () => _removeStrength(index),
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                              size: 20,
+                            ),
                             tooltip: 'Remove Strength',
                           ),
                       ],
                     ),
                   );
                 }).toList(),
-                _modernAddButton("Add Strength", Icons.add_circle_outline, _addStrength),
+                _modernAddButton(
+                  "Add Strength",
+                  Icons.add_circle_outline,
+                  _addStrength,
+                ),
               ],
             ),
           ),
@@ -913,596 +1520,16 @@ class _ResumeHomeState extends State<ResumeHome> {
         icon: Icon(icon, size: 18),
         label: Text(
           text,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
         style: OutlinedButton.styleFrom(
           foregroundColor: const Color(0xFF6B8E7F),
-          side: const BorderSide(
-            color: Color(0xFF6B8E7F),
-            width: 1.5,
-          ),
+          side: const BorderSide(color: Color(0xFF6B8E7F), width: 1.5),
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           backgroundColor: const Color(0xFF6B8E7F).withOpacity(0.05),
         ),
       ),
-    );
-  }
-
-  Widget _buildExperienceCard2() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ExpansionTile(
-        initiallyExpanded: isExperienceExpanded,
-        onExpansionChanged: (expanded) {
-          setState(() {
-            isExperienceExpanded = expanded;
-          });
-        },
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(
-            Icons.work_outline,
-            color: Color(0xFF6B8E7F),
-            size: 22,
-          ),
-        ),
-        title: const Text(
-          "Experience",
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF1A202C),
-          ),
-        ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: Column(
-              children: [
-                ...data.experiences.asMap().entries.map((entry) {
-                  int index = entry.key;
-                  ExperienceItem experience = entry.value;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FFF4),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFB8E6C1)),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                "Experience ${index + 1}",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF2D3748),
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                            if (data.experiences.length > 1)
-                              IconButton(
-                                onPressed: () => _removeExperience(index),
-                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                                tooltip: 'Remove Experience',
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _modernTextField("Company Name", Icons.business, (v) => setState(() => experience.companyName = v)),
-                        _modernTextField("Job Title", Icons.work, (v) => setState(() => experience.jobTitle = v)),
-                        _modernTextField("Location", Icons.location_on, (v) => setState(() => experience.location = v)),
-                        _modernTextField("Duration", Icons.schedule, (v) => setState(() => experience.duration = v)),
-                        _modernTextField("Description", Icons.description, (v) => setState(() => experience.description = v), lines: 3),
-                      ],
-                    ),
-                  );
-                }).toList(),
-                _modernAddButton("Add Experience", Icons.add_business, _addExperience),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _oldBuildEditorSection() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // Personal Information (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isPersonalExpanded = !isPersonalExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Personal Information",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isPersonalExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isPersonalExpanded) ...[
-          _customTextField("Full Name", (v) => setState(() => data.name = v)),
-          _customTextField("Phone", (v) => setState(() => data.phone = v)),
-          _customTextField("Email", (v) => setState(() => data.email = v)),
-          _customTextField("LinkedIn URL", (v) => setState(() => data.linkedin = v)),
-          _customTextField("LinkedIn Display Name", (v) => setState(() => data.linkedinName = v)),
-          _customTextField("GitHub URL", (v) => setState(() => data.github = v)),
-          _customTextField("GitHub Display Name", (v) => setState(() => data.githubName = v)),
-        ],
-        const SizedBox(height: 20),
-        
-        // Skills (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isSkillsExpanded = !isSkillsExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Skills",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isSkillsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isSkillsExpanded) ...[  
-          _customTextField("Languages", (v) => setState(() => data.languages = v)),
-          _customTextField("Frameworks and Databases", (v) => setState(() => data.frameworks = v)),
-          _customTextField("Tools and Technologies", (v) => setState(() => data.tools = v)),
-          _customTextField("Others", (v) => setState(() => data.others = v)),
-        ],
-        
-        const SizedBox(height: 20),
-        
-        // Experience (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isExperienceExpanded = !isExperienceExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Experience",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isExperienceExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isExperienceExpanded) ...[
-          ...data.experiences.asMap().entries.map((entry) {
-            int index = entry.key;
-            ExperienceItem experience = entry.value;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0FFF4),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFB8E6C1)),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "Experience ${index + 1}",
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2D3748),
-                          ),
-                        ),
-                      ),
-                      if (data.experiences.length > 1)
-                        IconButton(
-                          onPressed: () => _removeExperience(index),
-                          icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _customTextField("Company Name", (v) => setState(() => experience.companyName = v)),
-                  _customTextField("Job Title", (v) => setState(() => experience.jobTitle = v)),
-                  _customTextField("Location", (v) => setState(() => experience.location = v)),
-                  _customTextField("Duration", (v) => setState(() => experience.duration = v)),
-                  _customTextField("Description", (v) => setState(() => experience.description = v), lines: 3),
-                ],
-              ),
-            );
-          }).toList(),
-          _addButton("Add Experience", _addExperience),
-        ],
-        
-        const SizedBox(height: 20),
-        
-        // Projects (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isProjectsExpanded = !isProjectsExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Projects",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isProjectsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isProjectsExpanded) ...[
-          ...data.projects.asMap().entries.map((entry) {
-            int index = entry.key;
-            ProjectItem project = entry.value;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0FFF4),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFB8E6C1)),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "Project ${index + 1}",
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2D3748),
-                          ),
-                        ),
-                      ),
-                      if (data.projects.length > 1)
-                        IconButton(
-                          onPressed: () => _removeProject(index),
-                          icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _customTextField("Project Title", (v) => setState(() => project.title = v)),
-                  _customTextField("Project Description", (v) => setState(() => project.description = v), lines: 3),
-                ],
-              ),
-            );
-          }).toList(),
-          _addButton("Add Project", _addProject),
-        ],
-        const SizedBox(height: 20),
-
-        // Education (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isEducationExpanded = !isEducationExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Education",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isEducationExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isEducationExpanded) ...[
-          // University block
-          Container(
-            margin: const EdgeInsets.only(bottom: 14),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFAFBFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFE2E8F0),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: const [
-                    Expanded(
-                      child: Text(
-                        "University",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2D3748),
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _customTextField("University Name", (v) => setState(() => data.university = v)),
-                _customTextField("University GPA", (v) => setState(() => data.universityGPA = v)),
-                _customTextField("University Location", (v) => setState(() => data.universityLocation = v)),
-                _customTextField("University Duration", (v) => setState(() => data.universityDuration = v)),
-              ],
-            ),
-          ),
-
-          // College block
-          Container(
-            margin: const EdgeInsets.only(bottom: 14),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFAFBFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFE2E8F0),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: const [
-                    Expanded(
-                      child: Text(
-                        "College",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2D3748),
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _customTextField("College Name", (v) => setState(() => data.college = v)),
-                _customTextField("College GPA", (v) => setState(() => data.collegeGPA = v)),
-                _customTextField("College Location", (v) => setState(() => data.collegeLocation = v)),
-                _customTextField("College Duration", (v) => setState(() => data.collegeDuration = v)),
-              ],
-            ),
-          ),
-
-          // High School block
-          Container(
-            margin: const EdgeInsets.only(bottom: 14),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFAFBFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFE2E8F0),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: const [
-                    Expanded(
-                      child: Text(
-                        "High School",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2D3748),
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _customTextField("High School Name", (v) => setState(() => data.highSchool = v)),
-                _customTextField("High School GPA", (v) => setState(() => data.highSchoolGPA = v)),
-                _customTextField("High School Location", (v) => setState(() => data.highSchoolLocation = v)),
-                _customTextField("High School Duration", (v) => setState(() => data.highSchoolDuration = v)),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 20),
-        
-        // Achievements (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isAchievementsExpanded = !isAchievementsExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Achievements",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isAchievementsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isAchievementsExpanded) ...[
-          ...data.achievements.asMap().entries.map((entry) {
-            int index = entry.key;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _customTextField("Achievement ${index + 1}", (v) => setState(() => data.achievements[index] = v)),
-                  ),
-                  if (data.achievements.length > 1)
-                    IconButton(
-                      onPressed: () => _removeAchievement(index),
-                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                ],
-              ),
-            );
-          }).toList(),
-          _addButton("Add Achievement", _addAchievement),
-        ],
-        const SizedBox(height: 20),
-        
-        // Strengths (collapsible)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: InkWell(
-            onTap: () => setState(() => isStrengthsExpanded = !isStrengthsExpanded),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Strengths",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3748),
-                  ),
-                ),
-                Icon(
-                  isStrengthsExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                  color: const Color(0xFF2D3748),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (isStrengthsExpanded) ...[
-          ...data.strengths.asMap().entries.map((entry) {
-            int index = entry.key;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _customTextField("Strength ${index + 1}", (v) => setState(() => data.strengths[index] = v)),
-                  ),
-                  if (data.strengths.length > 1)
-                    IconButton(
-                      onPressed: () => _removeStrength(index),
-                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                ],
-              ),
-            );
-          }).toList(),
-          _addButton("Add Strength", _addStrength),
-        ],
-      ],
     );
   }
 
@@ -1540,12 +1567,18 @@ class _ResumeHomeState extends State<ResumeHome> {
                     icon: const Icon(Icons.download_rounded, size: 18),
                     label: const Text(
                       "Download PDF",
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF6B8E7F),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -1565,7 +1598,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8E6B7F),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1576,15 +1612,13 @@ class _ResumeHomeState extends State<ResumeHome> {
               ],
             ),
           ),
-          
+
           // A4 Preview Container
           Expanded(
             child: Center(
               child: Container(
                 margin: const EdgeInsets.all(20),
-                constraints: const BoxConstraints(
-                  maxWidth: 600,
-                ),
+                constraints: const BoxConstraints(maxWidth: 600),
                 child: AspectRatio(
                   aspectRatio: 210 / 297, // A4 ratio
                   child: Container(
@@ -1612,10 +1646,16 @@ class _ResumeHomeState extends State<ResumeHome> {
                         children: [
                           // Preview Header
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
-                                colors: [const Color(0xFF6B8E7F).withOpacity(0.1), const Color(0xFF557A6E).withOpacity(0.05)],
+                                colors: [
+                                  const Color(0xFF6B8E7F).withOpacity(0.1),
+                                  const Color(0xFF557A6E).withOpacity(0.05),
+                                ],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
@@ -1639,7 +1679,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                               ],
                             ),
                           ),
-                          
+
                           // Resume Content
                           Expanded(
                             child: SingleChildScrollView(
@@ -1649,9 +1689,9 @@ class _ResumeHomeState extends State<ResumeHome> {
                                 children: [
                                   // Header Section
                                   _buildResumeHeader(),
-                                  
+
                                   const SizedBox(height: 20),
-                                  
+
                                   // Sections in custom order
                                   ...sectionOrder.map((section) {
                                     switch (section) {
@@ -1699,14 +1739,17 @@ class _ResumeHomeState extends State<ResumeHome> {
                                         );
                                       default:
                                         // Check if it's a custom section
-                                        var customSection = customSections.firstWhere(
-                                          (cs) => cs['id'] == section,
-                                          orElse: () => {},
-                                        );
+                                        var customSection = customSections
+                                            .firstWhere(
+                                              (cs) => cs['id'] == section,
+                                              orElse: () => {},
+                                            );
                                         if (customSection.isNotEmpty) {
                                           return Column(
                                             children: [
-                                              _buildCustomSection(customSection),
+                                              _buildCustomSection(
+                                                customSection,
+                                              ),
                                               const SizedBox(height: 20),
                                             ],
                                           );
@@ -1735,48 +1778,56 @@ class _ResumeHomeState extends State<ResumeHome> {
   void _addExperience() {
     setState(() {
       data.experiences.add(ExperienceItem());
+      _clearFieldControllersByPrefix('experience.');
     });
   }
 
   void _removeExperience(int index) {
     setState(() {
       data.experiences.removeAt(index);
+      _clearFieldControllersByPrefix('experience.');
     });
   }
 
   void _addProject() {
     setState(() {
       data.projects.add(ProjectItem());
+      _clearFieldControllersByPrefix('project.');
     });
   }
 
   void _removeProject(int index) {
     setState(() {
       data.projects.removeAt(index);
+      _clearFieldControllersByPrefix('project.');
     });
   }
 
   void _addAchievement() {
     setState(() {
       data.achievements.add("");
+      _clearFieldControllersByPrefix('achievement.');
     });
   }
 
   void _removeAchievement(int index) {
     setState(() {
       data.achievements.removeAt(index);
+      _clearFieldControllersByPrefix('achievement.');
     });
   }
 
   void _addStrength() {
     setState(() {
       data.strengths.add("");
+      _clearFieldControllersByPrefix('strength.');
     });
   }
 
   void _removeStrength(int index) {
     setState(() {
       data.strengths.removeAt(index);
+      _clearFieldControllersByPrefix('strength.');
     });
   }
 
@@ -1784,107 +1835,166 @@ class _ResumeHomeState extends State<ResumeHome> {
   void _calculateATSScore() {
     int score = 0;
     List<String> recommendations = [];
-    
+
     // Basic Contact Information (25 points)
-    if (data.name.isNotEmpty && data.name != "YOUR NAME") score += 5;
-    else recommendations.add("Add your full name");
-    
-    if (data.email.isNotEmpty && data.email.contains('@') && !data.email.contains("youremail")) score += 5;
-    else recommendations.add("Add a valid email address");
-    
-    if (data.phone.isNotEmpty && !data.phone.contains("1234567890")) score += 5;
-    else recommendations.add("Add your phone number");
-    
-    if ((data.street.isNotEmpty && !data.street.contains("Street")) || 
-        (data.city.isNotEmpty && !data.city.contains("City"))) score += 5;
-    else recommendations.add("Add your location details");
-    
-    if ((data.linkedin.isNotEmpty && !data.linkedin.contains("yourprofile")) || 
-        (data.github.isNotEmpty && !data.github.contains("yourprofile"))) score += 5;
-    else recommendations.add("Add LinkedIn or GitHub profile");
-    
+    if (data.name.isNotEmpty && data.name != "YOUR NAME")
+      score += 5;
+    else
+      recommendations.add("Add your full name");
+
+    if (data.email.isNotEmpty &&
+        data.email.contains('@') &&
+        !data.email.contains("youremail"))
+      score += 5;
+    else
+      recommendations.add("Add a valid email address");
+
+    if (data.phone.isNotEmpty && !data.phone.contains("1234567890"))
+      score += 5;
+    else
+      recommendations.add("Add your phone number");
+
+    if ((data.street.isNotEmpty && !data.street.contains("Street")) ||
+        (data.city.isNotEmpty && !data.city.contains("City")))
+      score += 5;
+    else
+      recommendations.add("Add your location details");
+
+    if ((data.linkedin.isNotEmpty && !data.linkedin.contains("yourprofile")) ||
+        (data.github.isNotEmpty && !data.github.contains("yourprofile")))
+      score += 5;
+    else
+      recommendations.add("Add LinkedIn or GitHub profile");
+
     // Skills Section (20 points)
-    List<String> allSkills = [
-      data.languages,
-      data.frameworks, 
-      data.tools,
-      data.others
-    ].where((skill) => skill.isNotEmpty).toList();
-    
+    List<String> allSkills = _getSkillRows()
+        .map((row) => row['skills']!.trim())
+        .where((skill) => skill.isNotEmpty)
+        .toList();
+
     if (allSkills.isNotEmpty) {
       score += 10;
       int skillCount = allSkills.join(',').split(',').length;
-      if (skillCount >= 5) score += 5;
-      else recommendations.add("Add more skills (at least 5)");
-      
+      if (skillCount >= 5)
+        score += 5;
+      else
+        recommendations.add("Add more skills (at least 5)");
+
       // Check for technical keywords
       String skillsText = allSkills.join(' ').toLowerCase();
-      List<String> techKeywords = ['python', 'java', 'javascript', 'react', 'node', 'sql', 'git', 'aws', 'docker', 'kubernetes', 'machine learning', 'data analysis', 'flutter', 'dart', 'c++', 'mongodb', 'mysql'];
-      int techCount = techKeywords.where((keyword) => skillsText.contains(keyword)).length;
-      if (techCount >= 3) score += 5;
-      else recommendations.add("Add more technical skills with industry keywords");
+      List<String> techKeywords = [
+        'python',
+        'java',
+        'javascript',
+        'react',
+        'node',
+        'sql',
+        'git',
+        'aws',
+        'docker',
+        'kubernetes',
+        'machine learning',
+        'data analysis',
+        'flutter',
+        'dart',
+        'c++',
+        'mongodb',
+        'mysql',
+      ];
+      int techCount = techKeywords
+          .where((keyword) => skillsText.contains(keyword))
+          .length;
+      if (techCount >= 3)
+        score += 5;
+      else
+        recommendations.add("Add more technical skills with industry keywords");
     } else {
       recommendations.add("Add skills section with relevant keywords");
     }
-    
+
     // Experience Section (25 points)
     if (data.experiences.isNotEmpty) {
       score += 10;
-      
+
       // Check for job descriptions
-      bool hasDescriptions = data.experiences.any((exp) => exp.description.isNotEmpty && !exp.description.contains("Briefly describe"));
-      if (hasDescriptions) score += 8;
-      else recommendations.add("Add detailed job descriptions");
-      
+      bool hasDescriptions = data.experiences.any(
+        (exp) =>
+            exp.description.isNotEmpty &&
+            !exp.description.contains("Briefly describe"),
+      );
+      if (hasDescriptions)
+        score += 8;
+      else
+        recommendations.add("Add detailed job descriptions");
+
       // Check for quantifiable achievements
       String expText = data.experiences.map((exp) => exp.description).join(' ');
       RegExp numbers = RegExp(r'\d+');
-      if (numbers.hasMatch(expText)) score += 7;
-      else recommendations.add("Include quantifiable achievements (numbers, percentages)");
+      if (numbers.hasMatch(expText))
+        score += 7;
+      else
+        recommendations.add(
+          "Include quantifiable achievements (numbers, percentages)",
+        );
     } else {
       recommendations.add("Add work experience section");
     }
-    
+
     // Education Section (15 points)
-    bool hasEducation = (data.university.isNotEmpty && !data.university.contains("Your University")) ||
-                       (data.college.isNotEmpty && !data.college.contains("Your College")) ||
-                       (data.highSchool.isNotEmpty && !data.highSchool.contains("Your High School"));
-    
+    bool hasEducation =
+        (data.university.isNotEmpty &&
+            !data.university.contains("Your University")) ||
+        (data.college.isNotEmpty && !data.college.contains("Your College")) ||
+        (data.highSchool.isNotEmpty &&
+            !data.highSchool.contains("Your High School"));
+
     if (hasEducation) {
       score += 10;
-      bool hasGraduation = data.universityDuration.isNotEmpty || data.collegeDuration.isNotEmpty || data.highSchoolDuration.isNotEmpty;
-      if (hasGraduation && !data.universityDuration.contains("Graduation Date")) score += 5;
-      else recommendations.add("Add graduation years for education");
+      bool hasGraduation =
+          data.universityDuration.isNotEmpty ||
+          data.collegeDuration.isNotEmpty ||
+          data.highSchoolDuration.isNotEmpty;
+      if (hasGraduation && !data.universityDuration.contains("Graduation Date"))
+        score += 5;
+      else
+        recommendations.add("Add graduation years for education");
     } else {
       recommendations.add("Add education section");
     }
-    
+
     // Projects Section (10 points)
     if (data.projects.isNotEmpty) {
       score += 5;
-      bool hasProjectDesc = data.projects.any((proj) => proj.description.isNotEmpty && !proj.description.contains("Briefly describe"));
-      if (hasProjectDesc) score += 5;
-      else recommendations.add("Add detailed project descriptions");
+      bool hasProjectDesc = data.projects.any(
+        (proj) =>
+            proj.description.isNotEmpty &&
+            !proj.description.contains("Briefly describe"),
+      );
+      if (hasProjectDesc)
+        score += 5;
+      else
+        recommendations.add("Add detailed project descriptions");
     } else {
       recommendations.add("Consider adding relevant projects");
     }
-    
+
     // Additional Sections (5 points)
     if (data.achievements.isNotEmpty || data.strengths.isNotEmpty) {
       score += 5;
     }
-    
+
     // Format and Structure Bonuses
-    if (data.name.length > 2 && !data.name.contains(RegExp(r'[^a-zA-Z\s]'))) score += 2;
+    if (data.name.length > 2 && !data.name.contains(RegExp(r'[^a-zA-Z\s]')))
+      score += 2;
     if (data.email.toLowerCase() == data.email) score += 1;
     int totalSkillCount = allSkills.join(',').split(',').length;
     if (totalSkillCount >= 8) score += 2;
-    
+
     // Set the calculated values
     setState(() {
       _atsScore = score;
       _atsRecommendations = recommendations;
-      
+
       if (score >= 90) {
         _atsScoreText = "Excellent ATS compatibility";
       } else if (score >= 75) {
@@ -1892,7 +2002,8 @@ class _ResumeHomeState extends State<ResumeHome> {
       } else if (score >= 60) {
         _atsScoreText = "Fair ATS compatibility - needs improvement";
       } else {
-        _atsScoreText = "Poor ATS compatibility - significant improvement needed";
+        _atsScoreText =
+            "Poor ATS compatibility - significant improvement needed";
       }
     });
   }
@@ -1902,7 +2013,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (_atsScore == 0) {
       _calculateATSScore();
     }
-    
+
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
@@ -2000,7 +2111,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      
+
                       // Score Card
                       Container(
                         width: double.infinity,
@@ -2030,19 +2141,30 @@ class _ResumeHomeState extends State<ResumeHome> {
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     gradient: LinearGradient(
-                                      colors: _atsScore >= 75 
-                                        ? [const Color(0xFF10B981), const Color(0xFF059669)]  // Green for good scores
-                                        : _atsScore >= 60 
-                                          ? [const Color(0xFFF59E0B), const Color(0xFFD97706)]  // Orange for fair scores
-                                          : [const Color(0xFFEF4444), const Color(0xFFDC2626)], // Red for poor scores
+                                      colors: _atsScore >= 75
+                                          ? [
+                                              const Color(0xFF10B981),
+                                              const Color(0xFF059669),
+                                            ] // Green for good scores
+                                          : _atsScore >= 60
+                                          ? [
+                                              const Color(0xFFF59E0B),
+                                              const Color(0xFFD97706),
+                                            ] // Orange for fair scores
+                                          : [
+                                              const Color(0xFFEF4444),
+                                              const Color(0xFFDC2626),
+                                            ], // Red for poor scores
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: (_atsScore >= 75 
-                                          ? const Color(0xFF10B981)
-                                          : _atsScore >= 60 
-                                            ? const Color(0xFFF59E0B)
-                                            : const Color(0xFFEF4444)).withOpacity(0.3),
+                                        color:
+                                            (_atsScore >= 75
+                                                    ? const Color(0xFF10B981)
+                                                    : _atsScore >= 60
+                                                    ? const Color(0xFFF59E0B)
+                                                    : const Color(0xFFEF4444))
+                                                .withOpacity(0.3),
                                         blurRadius: 10,
                                         offset: const Offset(0, 4),
                                       ),
@@ -2062,7 +2184,8 @@ class _ResumeHomeState extends State<ResumeHome> {
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         "ATS Score",
@@ -2112,42 +2235,70 @@ class _ResumeHomeState extends State<ResumeHome> {
                                   if (_atsRecommendations.isEmpty)
                                     const Row(
                                       children: [
-                                        Icon(Icons.check_circle, color: Color(0xFF10B981), size: 16),
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: Color(0xFF10B981),
+                                          size: 16,
+                                        ),
                                         SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
                                             "Excellent! Your resume meets all ATS requirements.",
-                                            style: TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: Color(0xFF4A5568),
+                                            ),
                                           ),
                                         ),
                                       ],
                                     )
                                   else
-                                    ..._atsRecommendations.take(3).map(
-                                      (recommendation) => Padding(
-                                        padding: const EdgeInsets.only(bottom: 6),
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              recommendation.contains('Add') || recommendation.contains('Include') 
-                                                ? Icons.warning_rounded 
-                                                : Icons.info_outline,
-                                              color: recommendation.contains('Add') || recommendation.contains('Include')
-                                                ? const Color(0xFFF59E0B)
-                                                : const Color(0xFF3B82F6),
-                                              size: 16,
+                                    ..._atsRecommendations
+                                        .take(3)
+                                        .map(
+                                          (recommendation) => Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 6,
                                             ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                recommendation,
-                                                style: const TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
-                                              ),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  recommendation.contains(
+                                                            'Add',
+                                                          ) ||
+                                                          recommendation
+                                                              .contains(
+                                                                'Include',
+                                                              )
+                                                      ? Icons.warning_rounded
+                                                      : Icons.info_outline,
+                                                  color:
+                                                      recommendation.contains(
+                                                            'Add',
+                                                          ) ||
+                                                          recommendation
+                                                              .contains(
+                                                                'Include',
+                                                              )
+                                                      ? const Color(0xFFF59E0B)
+                                                      : const Color(0xFF3B82F6),
+                                                  size: 16,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    recommendation,
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      color: Color(0xFF4A5568),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
-                                      ),
-                                    ).toList(),
+                                          ),
+                                        )
+                                        .toList(),
                                 ],
                               ),
                             ),
@@ -2155,7 +2306,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      
+
                       // Action Buttons
                       Row(
                         children: [
@@ -2167,12 +2318,17 @@ class _ResumeHomeState extends State<ResumeHome> {
                                   Navigator.of(context).pop();
                                   _calculateATSScore();
                                   // Show updated dialog
-                                  Future.delayed(const Duration(milliseconds: 300), () {
-                                    _showATSScoreDialog();
-                                  });
+                                  Future.delayed(
+                                    const Duration(milliseconds: 300),
+                                    () {
+                                      _showATSScoreDialog();
+                                    },
+                                  );
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: const Text("Resume analyzed! Updated ATS score calculated."),
+                                      content: const Text(
+                                        "Resume analyzed! Updated ATS score calculated.",
+                                      ),
                                       backgroundColor: const Color(0xFF8B5CF6),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(8),
@@ -2181,7 +2337,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                                     ),
                                   );
                                 },
-                                icon: const Icon(Icons.refresh_rounded, size: 16),
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 16,
+                                ),
                                 label: const Text(
                                   "Re-analyze",
                                   style: TextStyle(
@@ -2333,7 +2492,7 @@ class _ResumeHomeState extends State<ResumeHome> {
             ),
           ),
           const SizedBox(height: 20),
-          
+
           // Name Text Size
           Text("Name Text Size: ${nameTextSize.round()}px"),
           Slider(
@@ -2348,9 +2507,9 @@ class _ResumeHomeState extends State<ResumeHome> {
               });
             },
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           // Section Header Size
           Text("Section Header Size: ${sectionHeaderSize.round()}px"),
           Slider(
@@ -2365,9 +2524,9 @@ class _ResumeHomeState extends State<ResumeHome> {
               });
             },
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           // Body Text Size
           Text("Body Text Size: ${bodyTextSize.round()}px"),
           Slider(
@@ -2382,9 +2541,9 @@ class _ResumeHomeState extends State<ResumeHome> {
               });
             },
           ),
-          
+
           const SizedBox(height: 30),
-          
+
           // Reset Button
           Center(
             child: OutlinedButton(
@@ -2418,43 +2577,43 @@ class _ResumeHomeState extends State<ResumeHome> {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Name Color
           _colorSelector("Name Text Color", nameTextColor, (color) {
             setDialogState(() {
               nameTextColor = color;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
+
           // Section Header Color
           _colorSelector("Section Header Color", sectionHeaderColor, (color) {
             setDialogState(() {
               sectionHeaderColor = color;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
+
           // Body Text Color
           _colorSelector("Body Text Color", bodyTextColor, (color) {
             setDialogState(() {
               bodyTextColor = color;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
+
           // Contact Link Color
           _colorSelector("Contact Link Color", contactLinkColor, (color) {
             setDialogState(() {
               contactLinkColor = color;
             });
           }),
-          
+
           const SizedBox(height: 20),
-          
+
           // Reset Button
           Center(
             child: OutlinedButton(
@@ -2474,7 +2633,11 @@ class _ResumeHomeState extends State<ResumeHome> {
     );
   }
 
-  Widget _colorSelector(String label, Color currentColor, Function(Color) onColorChanged) {
+  Widget _colorSelector(
+    String label,
+    Color currentColor,
+    Function(Color) onColorChanged,
+  ) {
     List<Color> colors = [
       Colors.black,
       const Color(0xFF2D3748),
@@ -2516,19 +2679,19 @@ class _ResumeHomeState extends State<ResumeHome> {
                     width: isSelected ? 3 : 1,
                   ),
                   borderRadius: BorderRadius.circular(20),
-                  boxShadow: isSelected ? [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ] : null,
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
-                child: isSelected ? const Icon(
-                  Icons.check,
-                  color: Colors.white,
-                  size: 20,
-                ) : null,
+                child: isSelected
+                    ? const Icon(Icons.check, color: Colors.white, size: 20)
+                    : null,
               ),
             );
           }).toList(),
@@ -2552,7 +2715,7 @@ class _ResumeHomeState extends State<ResumeHome> {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Add Custom Section button at top
           Container(
             width: double.infinity,
@@ -2567,19 +2730,55 @@ class _ResumeHomeState extends State<ResumeHome> {
                   }
                 });
               },
-              icon: Icon(_showAddSectionForm ? Icons.remove : Icons.add, size: 18),
-              label: Text(_showAddSectionForm ? 'Cancel' : 'Add Custom Section'),
+              icon: Icon(
+                _showAddSectionForm ? Icons.remove : Icons.add,
+                size: 18,
+              ),
+              label: Text(
+                _showAddSectionForm ? 'Cancel' : 'Add Custom Section',
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _showAddSectionForm ? const Color(0xFF718096) : const Color(0xFF6B8E7F),
+                backgroundColor: _showAddSectionForm
+                    ? const Color(0xFF718096)
+                    : const Color(0xFF6B8E7F),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
             ),
           ),
+
+          const SizedBox(height: 24),
+          const Text(
+            "Skill Subheadings",
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2D3748),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _sectionNameEditor("Languages Label", skillsLanguagesLabel, (v) {
+            setDialogState(() => skillsLanguagesLabel = v);
+          }),
+          _sectionNameEditor("Frameworks Label", skillsFrameworksLabel, (v) {
+            setDialogState(() => skillsFrameworksLabel = v);
+          }),
+          _sectionNameEditor("Tools Label", skillsToolsLabel, (v) {
+            setDialogState(() => skillsToolsLabel = v);
+          }),
+          _sectionNameEditor("Others Label", skillsOthersLabel, (v) {
+            setDialogState(() => skillsOthersLabel = v);
+          }),
 
           // Add Section Form (shown below the button when active)
           if (_showAddSectionForm)
@@ -2604,21 +2803,24 @@ class _ResumeHomeState extends State<ResumeHome> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // Section Name Input
                   TextFormField(
                     controller: _newSectionNameController,
                     decoration: const InputDecoration(
                       labelText: 'Section Name',
                       hintText: 'e.g., Certifications, Languages, Hobbies',
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 12),
-                  
+
                   // Section Content Input
                   TextFormField(
                     controller: _newSectionContentController,
@@ -2626,14 +2828,17 @@ class _ResumeHomeState extends State<ResumeHome> {
                     decoration: const InputDecoration(
                       labelText: 'Section Content',
                       hintText: 'Enter the content for this section...',
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Action Buttons
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -2651,13 +2856,19 @@ class _ResumeHomeState extends State<ResumeHome> {
                       const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: () {
-                          if (_newSectionNameController.text.trim().isNotEmpty) {
+                          if (_newSectionNameController.text
+                              .trim()
+                              .isNotEmpty) {
                             setDialogState(() {
                               customSections.add({
-                                'id': 'custom_${DateTime.now().millisecondsSinceEpoch}',
+                                'id':
+                                    'custom_${DateTime.now().millisecondsSinceEpoch}',
                                 'name': _newSectionNameController.text.trim(),
-                                'content': _newSectionContentController.text.trim().isEmpty 
-                                    ? 'Add your content here...' 
+                                'content':
+                                    _newSectionContentController.text
+                                        .trim()
+                                        .isEmpty
+                                    ? 'Add your content here...'
                                     : _newSectionContentController.text.trim(),
                               });
                               sectionOrder.add(customSections.last['id']!);
@@ -2678,7 +2889,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                 ],
               ),
             ),
-          
+
           // Built-in sections
           const Text(
             "Built-in Sections",
@@ -2689,55 +2900,63 @@ class _ResumeHomeState extends State<ResumeHome> {
             ),
           ),
           const SizedBox(height: 8),
-          
+
           _sectionNameEditor("Skills Section", skillsSectionName, (value) {
             setDialogState(() {
               skillsSectionName = value;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
-          _sectionNameEditor("Experience Section", experienceSectionName, (value) {
+
+          _sectionNameEditor("Experience Section", experienceSectionName, (
+            value,
+          ) {
             setDialogState(() {
               experienceSectionName = value;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
+
           _sectionNameEditor("Projects Section", projectsSectionName, (value) {
             setDialogState(() {
               projectsSectionName = value;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
-          _sectionNameEditor("Education Section", educationSectionName, (value) {
+
+          _sectionNameEditor("Education Section", educationSectionName, (
+            value,
+          ) {
             setDialogState(() {
               educationSectionName = value;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
-          _sectionNameEditor("Achievements Section", achievementsSectionName, (value) {
+
+          _sectionNameEditor("Achievements Section", achievementsSectionName, (
+            value,
+          ) {
             setDialogState(() {
               achievementsSectionName = value;
             });
           }),
-          
+
           const SizedBox(height: 12),
-          
-          _sectionNameEditor("Strengths Section", strengthsSectionName, (value) {
+
+          _sectionNameEditor("Strengths Section", strengthsSectionName, (
+            value,
+          ) {
             setDialogState(() {
               strengthsSectionName = value;
             });
           }),
-          
+
           const SizedBox(height: 20),
-          
+
           // Custom sections header and list
           const Text(
             "Custom Sections",
@@ -2748,7 +2967,7 @@ class _ResumeHomeState extends State<ResumeHome> {
             ),
           ),
           const SizedBox(height: 12),
-          
+
           // Custom sections list
           ...customSections.asMap().entries.map((entry) {
             int index = entry.key;
@@ -2783,7 +3002,11 @@ class _ResumeHomeState extends State<ResumeHome> {
                             customSections.removeAt(index);
                           });
                         },
-                        icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                        icon: const Icon(
+                          Icons.delete,
+                          color: Colors.red,
+                          size: 20,
+                        ),
                         tooltip: 'Delete Section',
                       ),
                     ],
@@ -2798,7 +3021,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                     },
                     decoration: const InputDecoration(
                       labelText: 'Section Name',
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -2814,7 +3040,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                     maxLines: 3,
                     decoration: const InputDecoration(
                       labelText: 'Section Content',
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -2823,9 +3052,9 @@ class _ResumeHomeState extends State<ResumeHome> {
               ),
             );
           }).toList(),
-          
+
           const SizedBox(height: 20),
-          
+
           // Reset Button
           Center(
             child: OutlinedButton(
@@ -2837,10 +3066,17 @@ class _ResumeHomeState extends State<ResumeHome> {
                   educationSectionName = "EDUCATION";
                   achievementsSectionName = "Achievements";
                   strengthsSectionName = "Strengths";
+                  // reset skill subcategory labels as well
+                  skillsLanguagesLabel = "Languages:";
+                  skillsFrameworksLabel = "Frameworks and Database:";
+                  skillsToolsLabel = "Tools and Technologies:";
+                  skillsOthersLabel = "Others:";
+                  extraSkillRows.clear();
+                  _clearFieldControllersByPrefix('skills.');
                   customSections.clear();
                   sectionOrder = [
                     'Skills',
-                    'Experience', 
+                    'Experience',
                     'Projects',
                     'Education',
                     'Achievements',
@@ -2856,7 +3092,11 @@ class _ResumeHomeState extends State<ResumeHome> {
     );
   }
 
-  Widget _sectionNameEditor(String label, String currentValue, Function(String) onChanged) {
+  Widget _sectionNameEditor(
+    String label,
+    String currentValue,
+    Function(String) onChanged,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2878,18 +3118,12 @@ class _ResumeHomeState extends State<ResumeHome> {
           child: TextFormField(
             initialValue: currentValue,
             onChanged: onChanged,
-            style: const TextStyle(
-              color: Color(0xFF2D3748),
-              fontSize: 14,
-            ),
+            style: const TextStyle(color: Color(0xFF2D3748), fontSize: 14),
             decoration: const InputDecoration(
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               border: InputBorder.none,
               hintText: "Enter section name...",
-              hintStyle: TextStyle(
-                color: Color(0xFF718096),
-                fontSize: 14,
-              ),
+              hintStyle: TextStyle(color: Color(0xFF718096), fontSize: 14),
             ),
           ),
         ),
@@ -2899,7 +3133,27 @@ class _ResumeHomeState extends State<ResumeHome> {
 
   Widget _buildSectionOrderTab(StateSetter setDialogState) {
     List<String> tempOrder = List.from(sectionOrder);
-    
+    final allAvailableSections = [
+      'Skills',
+      'Experience',
+      'Projects',
+      'Education',
+      'Achievements',
+      'Strengths',
+      ...customSections
+          .map((section) => section['id'])
+          .whereType<String>()
+          .toList(),
+    ];
+    final missingSections = allAvailableSections
+        .where((id) => !tempOrder.contains(id))
+        .toList();
+
+    if (_sectionToAddFromOrder != null &&
+        !missingSections.contains(_sectionToAddFromOrder)) {
+      _sectionToAddFromOrder = null;
+    }
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -2912,6 +3166,58 @@ class _ResumeHomeState extends State<ResumeHome> {
               fontWeight: FontWeight.w600,
               color: Color(0xFF2D3748),
             ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _sectionToAddFromOrder,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Add section to order',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: missingSections
+                      .map(
+                        (id) => DropdownMenuItem<String>(
+                          value: id,
+                          child: Text(_getSectionDisplayName(id)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: missingSections.isEmpty
+                      ? null
+                      : (value) {
+                          setDialogState(() {
+                            _sectionToAddFromOrder = value;
+                          });
+                        },
+                  hint: const Text('No hidden sections'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _sectionToAddFromOrder == null
+                      ? null
+                      : () {
+                          setDialogState(() {
+                            sectionOrder.add(_sectionToAddFromOrder!);
+                            _sectionToAddFromOrder = null;
+                          });
+                        },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6B8E7F),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           Expanded(
@@ -2938,12 +3244,32 @@ class _ResumeHomeState extends State<ResumeHome> {
                         color: Color(0xFF2D3748),
                       ),
                     ),
-                    trailing: Text(
-                      "${index + 1}",
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF718096),
-                      ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "${index + 1}",
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF718096),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete from order',
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 20,
+                          ),
+                          onPressed: tempOrder.length <= 1
+                              ? null
+                              : () {
+                                  setDialogState(() {
+                                    sectionOrder.remove(tempOrder[index]);
+                                  });
+                                },
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -2993,7 +3319,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (section['content']?.trim().isEmpty ?? true) {
       return const SizedBox();
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3008,11 +3334,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         const SizedBox(height: 8),
         _buildSmartText(
           section['content']!,
-          TextStyle(
-            fontSize: bodyTextSize,
-            color: bodyTextColor,
-            height: 1.4,
-          ),
+          TextStyle(fontSize: bodyTextSize, color: bodyTextColor, height: 1.4),
         ),
       ],
     );
@@ -3022,7 +3344,7 @@ class _ResumeHomeState extends State<ResumeHome> {
   Future<void> _downloadAsPDF() async {
     try {
       final pdf = pw.Document();
-      
+
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
@@ -3043,14 +3365,15 @@ class _ResumeHomeState extends State<ResumeHome> {
                       ),
                     ),
                     pw.SizedBox(height: 8),
-                    // Build contact info row with bullets
+                    // Use ASCII separator to avoid unsupported Unicode glyphs in PDF fonts.
                     pw.Text(
                       [
                         data.email,
-                        if (data.linkedinName.trim().isNotEmpty) data.linkedinName,
+                        if (data.linkedinName.trim().isNotEmpty)
+                          data.linkedinName,
                         if (data.githubName.trim().isNotEmpty) data.githubName,
-                        data.phone,
-                      ].where((item) => item.trim().isNotEmpty).join(' • '),
+                        _formattedPhone(),
+                      ].where((item) => item.trim().isNotEmpty).join(' | '),
                       style: pw.TextStyle(fontSize: bodyTextSize),
                       textAlign: pw.TextAlign.center,
                     ),
@@ -3063,7 +3386,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   ],
                 ),
                 pw.SizedBox(height: 20),
-                
+
                 // Sections in order
                 ...sectionOrder.map((section) {
                   switch (section) {
@@ -3101,7 +3424,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         onLayout: (PdfPageFormat format) async => pdf.save(),
         name: '${data.name.replaceAll(' ', '_')}_Resume.pdf',
       );
-      
+
       _showSuccessMessage('PDF download initiated successfully!');
     } catch (e) {
       _showErrorMessage('Error generating PDF: $e');
@@ -3125,6 +3448,10 @@ class _ResumeHomeState extends State<ResumeHome> {
       'role': data.role,
       'email': data.email,
       'phone': data.phone,
+      'phoneCountry': {
+        'name': _selectedPhoneCountryName,
+        'dialCode': _selectedPhoneCountryCode,
+      },
       'github': data.github,
       'linkedin': data.linkedin,
       'githubName': data.githubName,
@@ -3136,17 +3463,20 @@ class _ResumeHomeState extends State<ResumeHome> {
       'frameworks': data.frameworks,
       'tools': data.tools,
       'others': data.others,
-      'experiences': data.experiences.map((exp) => {
-        'companyName': exp.companyName,
-        'jobTitle': exp.jobTitle,
-        'location': exp.location,
-        'duration': exp.duration,
-        'description': exp.description,
-      }).toList(),
-      'projects': data.projects.map((proj) => {
-        'title': proj.title,
-        'description': proj.description,
-      }).toList(),
+      'experiences': data.experiences
+          .map(
+            (exp) => {
+              'companyName': exp.companyName,
+              'jobTitle': exp.jobTitle,
+              'location': exp.location,
+              'duration': exp.duration,
+              'description': exp.description,
+            },
+          )
+          .toList(),
+      'projects': data.projects
+          .map((proj) => {'title': proj.title, 'description': proj.description})
+          .toList(),
       'university': data.university,
       'universityGPA': data.universityGPA,
       'universityLocation': data.universityLocation,
@@ -3171,6 +3501,13 @@ class _ResumeHomeState extends State<ResumeHome> {
         'achievements': achievementsSectionName,
         'strengths': strengthsSectionName,
       },
+      'skillLabels': {
+        'languages': skillsLanguagesLabel,
+        'frameworks': skillsFrameworksLabel,
+        'tools': skillsToolsLabel,
+        'others': skillsOthersLabel,
+      },
+      'extraSkillRows': extraSkillRows,
       'formatting': {
         'nameTextSize': nameTextSize,
         'sectionHeaderSize': sectionHeaderSize,
@@ -3181,107 +3518,16 @@ class _ResumeHomeState extends State<ResumeHome> {
         'contactLinkColor': contactLinkColor.value,
       },
     };
-    
+
     // Convert to JSON and encode
     String jsonString = json.encode(resumeData);
     String encodedData = base64Url.encode(utf8.encode(jsonString));
-    
+
     // Create shareable link (you can customize this URL)
     String baseUrl = 'https://resume-builder-share.com/view';
     String shareableLink = '$baseUrl?data=$encodedData';
-    
-    return shareableLink;
-  }
 
-  String _generateResumeText() {
-    String text = '';
-    
-    // Header
-    text += '${data.name.toUpperCase()}\n';
-    text += '${data.email} • ${data.phone}\n';
-    if (data.linkedinName.isNotEmpty && data.githubName.isNotEmpty) {
-      text += '${data.linkedinName} • ${data.githubName}\n';
-    }
-    text += '${'=' * 50}\n\n';
-    
-    // Sections
-    for (String section in sectionOrder) {
-      switch (section) {
-        case 'Skills':
-          if (data.languages.isNotEmpty || data.frameworks.isNotEmpty || data.tools.isNotEmpty || data.others.isNotEmpty) {
-            text += '$skillsSectionName\n';
-            if (data.languages.isNotEmpty) text += 'Languages: ${data.languages}\n';
-            if (data.frameworks.isNotEmpty) text += 'Frameworks and Database: ${data.frameworks}\n';
-            if (data.tools.isNotEmpty) text += 'Tools and Technologies: ${data.tools}\n';
-            if (data.others.isNotEmpty) text += 'Others: ${data.others}\n';
-            text += '\n';
-          }
-          break;
-        case 'Experience':
-          if (data.experiences.any((exp) => exp.companyName.trim().isNotEmpty)) {
-            text += '$experienceSectionName\n';
-            for (var exp in data.experiences.where((e) => e.companyName.trim().isNotEmpty)) {
-              text += '${exp.companyName} - ${exp.jobTitle}\n';
-              text += '${exp.location} | ${exp.duration}\n';
-              text += '${exp.description}\n\n';
-            }
-          }
-          break;
-        case 'Projects':
-          if (data.projects.any((proj) => proj.title.trim().isNotEmpty)) {
-            text += '$projectsSectionName\n';
-            for (var proj in data.projects.where((p) => p.title.trim().isNotEmpty)) {
-              text += 'Project Name: ${proj.title}\n';
-              text += '${proj.description}\n\n';
-            }
-          }
-          break;
-        case 'Education':
-          text += '$educationSectionName\n';
-          if (data.university.trim().isNotEmpty) {
-            text += '${data.university} | GPA: ${data.universityGPA}\n';
-            text += '${data.universityLocation} | ${data.universityDuration}\n\n';
-          }
-          if (data.college.trim().isNotEmpty) {
-            text += '${data.college} | GPA: ${data.collegeGPA}\n';
-            text += '${data.collegeLocation} | ${data.collegeDuration}\n\n';
-          }
-          if (data.highSchool.trim().isNotEmpty) {
-            text += '${data.highSchool} | GPA: ${data.highSchoolGPA}\n';
-            text += '${data.highSchoolLocation} | ${data.highSchoolDuration}\n\n';
-          }
-          break;
-        case 'Achievements':
-          if (data.achievements.any((ach) => ach.trim().isNotEmpty)) {
-            text += '$achievementsSectionName\n';
-            for (var achievement in data.achievements.where((a) => a.trim().isNotEmpty)) {
-              text += '• $achievement\n';
-            }
-            text += '\n';
-          }
-          break;
-        case 'Strengths':
-          if (data.strengths.any((str) => str.trim().isNotEmpty)) {
-            text += '$strengthsSectionName\n';
-            for (var strength in data.strengths.where((s) => s.trim().isNotEmpty)) {
-              text += '• $strength\n';
-            }
-            text += '\n';
-          }
-          break;
-        default:
-          var customSection = customSections.firstWhere(
-            (cs) => cs['id'] == section,
-            orElse: () => {},
-          );
-          if (customSection.isNotEmpty && (customSection['content']?.trim().isNotEmpty ?? false)) {
-            text += '${customSection['name']!}\n';
-            text += '${customSection['content']!}\n\n';
-          }
-      }
-    }
-    
-    return text;
+    return shareableLink;
   }
 
   void _showSuccessMessage(String message) {
@@ -3318,10 +3564,14 @@ class _ResumeHomeState extends State<ResumeHome> {
 
   // PDF Section Builders
   pw.Widget _buildPDFSkillsSection() {
-    if (data.languages.isEmpty && data.frameworks.isEmpty && data.tools.isEmpty && data.others.isEmpty) {
+    final visibleSkillRows = _getSkillRows()
+        .where((row) => row['skills']!.trim().isNotEmpty)
+        .toList();
+
+    if (visibleSkillRows.isEmpty) {
       return pw.SizedBox();
     }
-    
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -3333,67 +3583,35 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         pw.SizedBox(height: 8),
-        if (data.languages.isNotEmpty)
-          pw.RichText(
-            text: pw.TextSpan(
-              style: pw.TextStyle(fontSize: bodyTextSize),
+        ...visibleSkillRows.asMap().entries.map((entry) {
+          final index = entry.key;
+          final row = entry.value;
+          return pw.Padding(
+            padding: pw.EdgeInsets.only(top: index == 0 ? 0 : 4),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.TextSpan(
-                  text: 'Languages:',
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                pw.Expanded(
+                  flex: 1,
+                  child: pw.Text(
+                    row['heading']!.trim(),
+                    style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: bodyTextSize,
+                    ),
+                  ),
                 ),
-                pw.TextSpan(text: ' ${data.languages}'),
+                pw.Expanded(
+                  flex: 2,
+                  child: pw.Text(
+                    row['skills']!.trim(),
+                    style: pw.TextStyle(fontSize: bodyTextSize),
+                  ),
+                ),
               ],
             ),
-          ),
-        if (data.frameworks.isNotEmpty)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 4),
-            child: pw.RichText(
-              text: pw.TextSpan(
-                style: pw.TextStyle(fontSize: bodyTextSize),
-                children: [
-                  pw.TextSpan(
-                    text: 'Frameworks and Database:',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                  ),
-                  pw.TextSpan(text: ' ${data.frameworks}'),
-                ],
-              ),
-            ),
-          ),
-        if (data.tools.isNotEmpty)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 4),
-            child: pw.RichText(
-              text: pw.TextSpan(
-                style: pw.TextStyle(fontSize: bodyTextSize),
-                children: [
-                  pw.TextSpan(
-                    text: 'Tools and Technologies:',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                  ),
-                  pw.TextSpan(text: ' ${data.tools}'),
-                ],
-              ),
-            ),
-          ),
-        if (data.others.isNotEmpty)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 4),
-            child: pw.RichText(
-              text: pw.TextSpan(
-                style: pw.TextStyle(fontSize: bodyTextSize),
-                children: [
-                  pw.TextSpan(
-                    text: 'Others:',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                  ),
-                  pw.TextSpan(text: ' ${data.others}'),
-                ],
-              ),
-            ),
-          ),
+          );
+        }),
         pw.SizedBox(height: 20),
       ],
     );
@@ -3403,7 +3621,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (data.experiences.every((exp) => exp.companyName.trim().isEmpty)) {
       return pw.SizedBox();
     }
-    
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -3415,50 +3633,53 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         pw.SizedBox(height: 8),
-        ...data.experiences.where((exp) => exp.companyName.trim().isNotEmpty).map((experience) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              // Company name and location row
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        ...data.experiences
+            .where((exp) => exp.companyName.trim().isNotEmpty)
+            .map((experience) {
+              return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text(
-                    experience.companyName,
-                    style: pw.TextStyle(
-                      fontSize: bodyTextSize + 1,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                  // Company name and location row
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        experience.companyName,
+                        style: pw.TextStyle(
+                          fontSize: bodyTextSize + 1,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        experience.location,
+                        style: pw.TextStyle(fontSize: bodyTextSize),
+                      ),
+                    ],
                   ),
-                  pw.Text(
-                    experience.location,
-                    style: pw.TextStyle(fontSize: bodyTextSize),
+                  // Job title and duration row
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        experience.jobTitle,
+                        style: pw.TextStyle(
+                          fontSize: bodyTextSize,
+                          fontStyle: pw.FontStyle.italic,
+                        ),
+                      ),
+                      pw.Text(
+                        experience.duration,
+                        style: pw.TextStyle(fontSize: bodyTextSize),
+                      ),
+                    ],
                   ),
+                  pw.SizedBox(height: 6),
+                  _buildPDFBulletList(experience.description),
+                  pw.SizedBox(height: 12),
                 ],
-              ),
-              // Job title and duration row
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    experience.jobTitle,
-                    style: pw.TextStyle(
-                      fontSize: bodyTextSize,
-                      fontStyle: pw.FontStyle.italic,
-                    ),
-                  ),
-                  pw.Text(
-                    experience.duration,
-                    style: pw.TextStyle(fontSize: bodyTextSize),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 6),
-              _buildPDFBulletList(experience.description),
-              pw.SizedBox(height: 12),
-            ],
-          );
-        }).toList(),
+              );
+            })
+            .toList(),
         pw.SizedBox(height: 8),
       ],
     );
@@ -3468,7 +3689,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (data.projects.every((proj) => proj.title.trim().isEmpty)) {
       return pw.SizedBox();
     }
-    
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -3480,7 +3701,9 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         pw.SizedBox(height: 8),
-        ...data.projects.where((proj) => proj.title.trim().isNotEmpty).map((project) {
+        ...data.projects.where((proj) => proj.title.trim().isNotEmpty).map((
+          project,
+        ) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
@@ -3515,17 +3738,37 @@ class _ResumeHomeState extends State<ResumeHome> {
         ),
         pw.SizedBox(height: 8),
         if (data.university.trim().isNotEmpty)
-          _buildPDFEducationItem(data.university, "GPA: ${data.universityGPA}", data.universityLocation, data.universityDuration),
+          _buildPDFEducationItem(
+            data.university,
+            "GPA: ${data.universityGPA}",
+            data.universityLocation,
+            data.universityDuration,
+          ),
         if (data.college.trim().isNotEmpty)
-          _buildPDFEducationItem(data.college, "GPA: ${data.collegeGPA}", data.collegeLocation, data.collegeDuration),
+          _buildPDFEducationItem(
+            data.college,
+            "GPA: ${data.collegeGPA}",
+            data.collegeLocation,
+            data.collegeDuration,
+          ),
         if (data.highSchool.trim().isNotEmpty)
-          _buildPDFEducationItem(data.highSchool, "GPA: ${data.highSchoolGPA}", data.highSchoolLocation, data.highSchoolDuration),
+          _buildPDFEducationItem(
+            data.highSchool,
+            "GPA: ${data.highSchoolGPA}",
+            data.highSchoolLocation,
+            data.highSchoolDuration,
+          ),
         pw.SizedBox(height: 12),
       ],
     );
   }
 
-  pw.Widget _buildPDFEducationItem(String institution, String gpa, String location, String duration) {
+  pw.Widget _buildPDFEducationItem(
+    String institution,
+    String gpa,
+    String location,
+    String duration,
+  ) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 8),
       child: pw.Column(
@@ -3544,10 +3787,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   ),
                 ),
               ),
-              pw.Text(
-                location,
-                style: pw.TextStyle(fontSize: bodyTextSize),
-              ),
+              pw.Text(location, style: pw.TextStyle(fontSize: bodyTextSize)),
             ],
           ),
           // GPA and duration row
@@ -3561,10 +3801,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   fontStyle: pw.FontStyle.italic,
                 ),
               ),
-              pw.Text(
-                duration,
-                style: pw.TextStyle(fontSize: bodyTextSize),
-              ),
+              pw.Text(duration, style: pw.TextStyle(fontSize: bodyTextSize)),
             ],
           ),
         ],
@@ -3574,7 +3811,22 @@ class _ResumeHomeState extends State<ResumeHome> {
 
   pw.Widget _buildPDFBulletList(String text) {
     if (text.trim().isEmpty) return pw.SizedBox();
-    final lines = text.split(RegExp(r'[\r\n]+')).map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+
+    String normalizeLine(String line) {
+      // Strip common leading bullet symbols; row bullet is rendered as a shape.
+      final withoutLeadingBullet = line.replaceFirst(
+        RegExp(r'^[\s\-\u2022\u25CF\u25E6\*]+'),
+        '',
+      );
+      // Replace inline bullet glyphs to avoid missing-glyph boxes in PDF fonts.
+      return withoutLeadingBullet.replaceAll('\u2022', '-').trim();
+    }
+
+    final lines = text
+        .split(RegExp(r'[\r\n]+'))
+        .map(normalizeLine)
+        .where((l) => l.isNotEmpty)
+        .toList();
     if (lines.isEmpty) return pw.SizedBox();
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -3584,9 +3836,27 @@ class _ResumeHomeState extends State<ResumeHome> {
           child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text('• ', style: pw.TextStyle(fontSize: bodyTextSize)),
+              // Draw bullet as a shape so rendering does not depend on font glyph support.
+              pw.Container(
+                width: 8,
+                height: bodyTextSize + 2,
+                alignment: pw.Alignment.topCenter,
+                child: pw.Container(
+                  width: 4,
+                  height: 4,
+                  margin: const pw.EdgeInsets.only(top: 5),
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.black,
+                    shape: pw.BoxShape.circle,
+                  ),
+                ),
+              ),
+              pw.SizedBox(width: 4),
               pw.Expanded(
-                child: pw.Text(line, style: pw.TextStyle(fontSize: bodyTextSize)),
+                child: pw.Text(
+                  line,
+                  style: pw.TextStyle(fontSize: bodyTextSize),
+                ),
               ),
             ],
           ),
@@ -3599,7 +3869,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (data.achievements.every((ach) => ach.trim().isEmpty)) {
       return pw.SizedBox();
     }
-    
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -3611,7 +3881,9 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         pw.SizedBox(height: 8),
-        ...data.achievements.where((ach) => ach.trim().isNotEmpty).map((achievement) {
+        ...data.achievements.where((ach) => ach.trim().isNotEmpty).map((
+          achievement,
+        ) {
           return pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 4),
             child: pw.Row(
@@ -3645,7 +3917,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (data.strengths.every((str) => str.trim().isEmpty)) {
       return pw.SizedBox();
     }
-    
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -3691,7 +3963,7 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (section['content']?.trim().isEmpty ?? true) {
       return pw.SizedBox();
     }
-    
+
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -3726,49 +3998,75 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
           textAlign: TextAlign.center,
         ),
-        
+
         const SizedBox(height: 8),
-        
+
         // Contact Information Row
         Wrap(
           alignment: WrapAlignment.center,
           spacing: 16,
           children: [
-            _contactItem("", data.email, contactLinkColor, isClickable: true, url: "mailto:${data.email}"),
-            if (data.linkedinName.trim().isNotEmpty && data.linkedin.trim().isNotEmpty)
-              _contactItem("", data.linkedinName, contactLinkColor, isClickable: true, 
-                url: data.linkedin.startsWith('http') ? data.linkedin : 'https://${data.linkedin}'),
-            if (data.githubName.trim().isNotEmpty && data.github.trim().isNotEmpty)
-              _contactItem("", data.githubName, contactLinkColor, isClickable: true, 
-                url: data.github.startsWith('http') ? data.github : 'https://${data.github}'),
-            _contactItem("", data.phone, bodyTextColor),
+            _contactItem(
+              "",
+              data.email,
+              contactLinkColor,
+              isClickable: true,
+              url: "mailto:${data.email}",
+            ),
+            if (data.linkedinName.trim().isNotEmpty &&
+                data.linkedin.trim().isNotEmpty)
+              _contactItem(
+                "",
+                data.linkedinName,
+                contactLinkColor,
+                isClickable: true,
+                url: data.linkedin.startsWith('http')
+                    ? data.linkedin
+                    : 'https://${data.linkedin}',
+              ),
+            if (data.githubName.trim().isNotEmpty &&
+                data.github.trim().isNotEmpty)
+              _contactItem(
+                "",
+                data.githubName,
+                contactLinkColor,
+                isClickable: true,
+                url: data.github.startsWith('http')
+                    ? data.github
+                    : 'https://${data.github}',
+              ),
+            _contactItem("", _formattedPhone(), bodyTextColor),
           ],
         ),
-        
+
         // Line separator
         const SizedBox(height: 12),
-        Container(
-          height: 1,
-          width: double.infinity,
-          color: nameTextColor,
-        ),
+        Container(height: 1, width: double.infinity, color: nameTextColor),
       ],
     );
   }
 
-  Widget _contactItem(String icon, String text, Color color, {bool isClickable = false, String? url}) {
+  Widget _contactItem(
+    String icon,
+    String text,
+    Color color, {
+    bool isClickable = false,
+    String? url,
+  }) {
     if (text.trim().isEmpty) return const SizedBox();
-    
+
     Widget textWidget = Text(
       text,
       style: TextStyle(
         fontSize: bodyTextSize,
         color: color,
-        decoration: isClickable ? TextDecoration.underline : TextDecoration.none,
+        decoration: isClickable
+            ? TextDecoration.underline
+            : TextDecoration.none,
       ),
       overflow: TextOverflow.ellipsis,
     );
-    
+
     if (isClickable && url != null && url.isNotEmpty) {
       return GestureDetector(
         onTap: () async {
@@ -3814,7 +4112,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         child: textWidget,
       );
     }
-    
+
     return textWidget;
   }
 
@@ -3831,45 +4129,53 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         const SizedBox(height: 8),
-        _skillCategory("Languages:", data.languages),
-        _skillCategory("Frameworks and Database:", data.frameworks),
-        _skillCategory("Tools and Technologies:", data.tools),
-        _skillCategory("Others:", data.others),
+        ..._getSkillRows().map(
+          (row) => _skillCategory(row['heading']!, row['skills']!),
+        ),
       ],
     );
   }
 
   Widget _skillCategory(String category, String skills) {
+    if (skills.trim().isEmpty) return const SizedBox();
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: RichText(
-        text: TextSpan(
-          style: TextStyle(
-            fontSize: bodyTextSize,
-            color: bodyTextColor,
-            height: 1.4,
-          ),
-          children: [
-            TextSpan(
-              text: category,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 1,
+            child: Text(
+              category,
+              style: TextStyle(
+                fontSize: bodyTextSize,
+                color: bodyTextColor,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            _buildTextWithGrammarCheck(" $skills", TextStyle(
-              fontSize: bodyTextSize,
-              color: bodyTextColor,
-              height: 1.4,
-            )),
-          ],
-        ),
+          ),
+          Expanded(
+            flex: 2,
+            child: _buildSmartText(
+              skills,
+              TextStyle(
+                fontSize: bodyTextSize,
+                color: bodyTextColor,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildExperienceSection() {
-    if (data.experiences.isEmpty || data.experiences.every((exp) => exp.companyName.trim().isEmpty)) {
+    if (data.experiences.isEmpty ||
+        data.experiences.every((exp) => exp.companyName.trim().isEmpty)) {
       return const SizedBox();
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3882,76 +4188,80 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         const SizedBox(height: 8),
-        ...data.experiences.where((exp) => exp.companyName.trim().isNotEmpty).map((experience) => 
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        ...data.experiences
+            .where((exp) => exp.companyName.trim().isNotEmpty)
+            .map(
+              (experience) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      experience.companyName,
-                      style: TextStyle(
-                        fontSize: bodyTextSize + 1,
-                        fontWeight: FontWeight.bold,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          experience.companyName,
+                          style: TextStyle(
+                            fontSize: bodyTextSize + 1,
+                            fontWeight: FontWeight.bold,
+                            color: bodyTextColor,
+                          ),
+                        ),
+                        Text(
+                          experience.location,
+                          style: TextStyle(
+                            fontSize: bodyTextSize,
+                            color: bodyTextColor.withOpacity(0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          experience.jobTitle,
+                          style: TextStyle(
+                            fontSize: bodyTextSize,
+                            fontStyle: FontStyle.italic,
+                            color: bodyTextColor.withOpacity(0.8),
+                          ),
+                        ),
+                        Text(
+                          experience.duration,
+                          style: TextStyle(
+                            fontSize: bodyTextSize,
+                            color: bodyTextColor.withOpacity(0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    _buildSmartText(
+                      experience.description,
+                      TextStyle(
+                        fontSize: bodyTextSize,
                         color: bodyTextColor,
+                        height: 1.3,
                       ),
-                    ),
-                    Text(
-                      experience.location,
-                      style: TextStyle(
-                        fontSize: bodyTextSize,
-                        color: bodyTextColor.withOpacity(0.8),
-                      ),
+                      softWrap: true,
+                      overflow: TextOverflow.visible,
                     ),
                   ],
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      experience.jobTitle,
-                      style: TextStyle(
-                        fontSize: bodyTextSize,
-                        fontStyle: FontStyle.italic,
-                        color: bodyTextColor.withOpacity(0.8),
-                      ),
-                    ),
-                    Text(
-                      experience.duration,
-                      style: TextStyle(
-                        fontSize: bodyTextSize,
-                        color: bodyTextColor.withOpacity(0.8),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                _buildSmartText(
-                  experience.description,
-                  TextStyle(
-                    fontSize: bodyTextSize,
-                    color: bodyTextColor,
-                    height: 1.3,
-                  ),
-                  softWrap: true,
-                  overflow: TextOverflow.visible,
-                ),
-              ],
-            ),
-          )
-        ).toList(),
+              ),
+            )
+            .toList(),
       ],
     );
   }
 
   Widget _buildProjectsSection() {
-    if (data.projects.isEmpty || data.projects.every((proj) => proj.title.trim().isEmpty)) {
+    if (data.projects.isEmpty ||
+        data.projects.every((proj) => proj.title.trim().isEmpty)) {
       return const SizedBox();
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3964,35 +4274,38 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         const SizedBox(height: 8),
-        ...data.projects.where((proj) => proj.title.trim().isNotEmpty).map((project) => 
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Project Name: ${project.title}",
-                  style: TextStyle(
-                    fontSize: bodyTextSize + 1,
-                    fontWeight: FontWeight.bold,
-                    color: bodyTextColor,
-                  ),
+        ...data.projects
+            .where((proj) => proj.title.trim().isNotEmpty)
+            .map(
+              (project) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Project Name: ${project.title}",
+                      style: TextStyle(
+                        fontSize: bodyTextSize + 1,
+                        fontWeight: FontWeight.bold,
+                        color: bodyTextColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    _buildSmartText(
+                      project.description,
+                      TextStyle(
+                        fontSize: bodyTextSize,
+                        color: bodyTextColor,
+                        height: 1.4,
+                      ),
+                      softWrap: true,
+                      overflow: TextOverflow.visible,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                _buildSmartText(
-                  project.description,
-                  TextStyle(
-                    fontSize: bodyTextSize,
-                    color: bodyTextColor,
-                    height: 1.4,
-                  ),
-                  softWrap: true,
-                  overflow: TextOverflow.visible,
-                ),
-              ],
-            ),
-          )
-        ).toList(),
+              ),
+            )
+            .toList(),
       ],
     );
   }
@@ -4011,16 +4324,36 @@ class _ResumeHomeState extends State<ResumeHome> {
         ),
         const SizedBox(height: 8),
         if (data.university.trim().isNotEmpty)
-          _educationItem(data.university, "GPA: ${data.universityGPA}", data.universityLocation, data.universityDuration),
+          _educationItem(
+            data.university,
+            "GPA: ${data.universityGPA}",
+            data.universityLocation,
+            data.universityDuration,
+          ),
         if (data.college.trim().isNotEmpty)
-          _educationItem(data.college, "GPA: ${data.collegeGPA}", data.collegeLocation, data.collegeDuration),
+          _educationItem(
+            data.college,
+            "GPA: ${data.collegeGPA}",
+            data.collegeLocation,
+            data.collegeDuration,
+          ),
         if (data.highSchool.trim().isNotEmpty)
-          _educationItem(data.highSchool, "GPA: ${data.highSchoolGPA}", data.highSchoolLocation, data.highSchoolDuration),
+          _educationItem(
+            data.highSchool,
+            "GPA: ${data.highSchoolGPA}",
+            data.highSchoolLocation,
+            data.highSchoolDuration,
+          ),
       ],
     );
   }
 
-  Widget _educationItem(String institution, String gpa, String location, String duration) {
+  Widget _educationItem(
+    String institution,
+    String gpa,
+    String location,
+    String duration,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -4074,10 +4407,11 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   Widget _buildAchievementsSection() {
-    if (data.achievements.isEmpty || data.achievements.every((ach) => ach.trim().isEmpty)) {
+    if (data.achievements.isEmpty ||
+        data.achievements.every((ach) => ach.trim().isEmpty)) {
       return const SizedBox();
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4090,28 +4424,32 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         const SizedBox(height: 8),
-        ...data.achievements.where((ach) => ach.trim().isNotEmpty).map((achievement) => 
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: _buildSmartText(
-              "• $achievement",
-              TextStyle(
-                fontSize: bodyTextSize,
-                color: bodyTextColor,
-                height: 1.4,
+        ...data.achievements
+            .where((ach) => ach.trim().isNotEmpty)
+            .map(
+              (achievement) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: _buildSmartText(
+                  "• $achievement",
+                  TextStyle(
+                    fontSize: bodyTextSize,
+                    color: bodyTextColor,
+                    height: 1.4,
+                  ),
+                ),
               ),
-            ),
-          )
-        ).toList(),
+            )
+            .toList(),
       ],
     );
   }
 
   Widget _buildStrengthsSection() {
-    if (data.strengths.isEmpty || data.strengths.every((str) => str.trim().isEmpty)) {
+    if (data.strengths.isEmpty ||
+        data.strengths.every((str) => str.trim().isEmpty)) {
       return const SizedBox();
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4124,121 +4462,23 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         const SizedBox(height: 8),
-        ...data.strengths.where((str) => str.trim().isNotEmpty).map((strength) => 
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: _buildSmartText(
-              "• $strength",
-              TextStyle(
-                fontSize: bodyTextSize,
-                color: bodyTextColor,
-                height: 1.4,
+        ...data.strengths
+            .where((str) => str.trim().isNotEmpty)
+            .map(
+              (strength) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: _buildSmartText(
+                  "• $strength",
+                  TextStyle(
+                    fontSize: bodyTextSize,
+                    color: bodyTextColor,
+                    height: 1.4,
+                  ),
+                ),
               ),
-            ),
-          )
-        ).toList(),
+            )
+            .toList(),
       ],
-    );
-  }
-
-  Widget _addButton(String text, VoidCallback onPressed) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 14),
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.add, size: 18),
-        label: Text(
-          text,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFF6B8E7F),
-          side: const BorderSide(
-            color: Color(0xFF6B8E7F),
-            width: 1.5,
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          surfaceTintColor: const Color(0xFF6B8E7F).withOpacity(0.05),
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-          color: Color(0xFF2D3748),
-        ),
-      ),
-    );
-  }
-
-  Widget _customTextField(String label, Function(String) onChanged, {int lines = 1}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      child: TextField(
-        maxLines: lines,
-        onChanged: onChanged,
-        style: const TextStyle(
-          color: Color(0xFF2D3748),
-          fontSize: 14,
-          height: 1.5,
-        ),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: const TextStyle(
-            color: Color(0xFF718096),
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Color(0xFFE2E8F0),
-              width: 1.5,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Color(0xFF6B8E7F),
-              width: 2,
-            ),
-          ),
-          filled: true,
-          fillColor: const Color(0xFFFAFBFC),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Colors.redAccent,
-              width: 1.5,
-            ),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(
-              color: Colors.red,
-              width: 2,
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -4247,56 +4487,61 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (text.trim().isEmpty) {
       return TextSpan(text: text, style: baseStyle);
     }
-    
-    List<Map<String, String>> errors = _checkTextForErrors(text);
-    
+
+    final errors = _checkTextForErrors(text);
     if (errors.isEmpty) {
       return TextSpan(text: text, style: baseStyle);
     }
-    
-    List<TextSpan> spans = [];
-    String remainingText = text;
+
+    final spans = <TextSpan>[];
     int currentIndex = 0;
-    
-    for (var error in errors) {
-      String errorWord = error['error']!;
-      int errorIndex = remainingText.toLowerCase().indexOf(errorWord.toLowerCase(), currentIndex);
-      
-      if (errorIndex != -1) {
-        // Add text before the error
-        if (errorIndex > currentIndex) {
-          spans.add(TextSpan(
-            text: remainingText.substring(currentIndex, errorIndex),
+
+    for (final error in errors) {
+      final errorWord = error['error']!;
+      final errorIndex = text.toLowerCase().indexOf(
+        errorWord.toLowerCase(),
+        currentIndex,
+      );
+
+      if (errorIndex == -1) continue;
+
+      if (errorIndex > currentIndex) {
+        spans.add(
+          TextSpan(
+            text: text.substring(currentIndex, errorIndex),
             style: baseStyle,
-          ));
-        }
-        
-        // Add the error text with red underline
-        spans.add(TextSpan(
-          text: remainingText.substring(errorIndex, errorIndex + errorWord.length),
+          ),
+        );
+      }
+
+      spans.add(
+        TextSpan(
+          text: text.substring(errorIndex, errorIndex + errorWord.length),
           style: baseStyle.copyWith(
             decoration: TextDecoration.underline,
             decorationColor: Colors.red,
-            decorationThickness: 2.0,
+            decorationThickness: 2,
           ),
-        ));
-        
-        currentIndex = errorIndex + errorWord.length;
-      }
+        ),
+      );
+
+      currentIndex = errorIndex + errorWord.length;
     }
-    
-    // Add remaining text
-    if (currentIndex < remainingText.length) {
-      spans.add(TextSpan(
-        text: remainingText.substring(currentIndex),
-        style: baseStyle,
-      ));
+
+    if (currentIndex < text.length) {
+      spans.add(TextSpan(text: text.substring(currentIndex), style: baseStyle));
     }
-    
+
     return TextSpan(children: spans);
   }
-  
-  Widget _buildSmartText(String text, TextStyle style, {TextAlign? textAlign, bool softWrap = true, TextOverflow? overflow}) {
+
+  Widget _buildSmartText(
+    String text,
+    TextStyle style, {
+    TextAlign? textAlign,
+    bool softWrap = true,
+    TextOverflow? overflow,
+  }) {
     return RichText(
       text: _buildTextWithGrammarCheck(text, style),
       textAlign: textAlign ?? TextAlign.start,
@@ -4304,6 +4549,7 @@ class _ResumeHomeState extends State<ResumeHome> {
       overflow: overflow ?? TextOverflow.visible,
     );
   }
+
   final List<String> _commonMisspellings = {
     'teh': 'the',
     'recieve': 'receive',
@@ -4324,8 +4570,8 @@ class _ResumeHomeState extends State<ResumeHome> {
     'comunication': 'communication',
     'collaberation': 'collaboration',
     'intrested': 'interested',
-    'knowlege': 'knowledge'
-  }.entries.map((e) => '${e.key}:${e.value}').toList();
+    'knowlege': 'knowledge',
+  }.entries.map((entry) => '${entry.key}:${entry.value}').toList();
 
   final List<String> _grammarRules = [
     'i am:I am',
@@ -4340,262 +4586,56 @@ class _ResumeHomeState extends State<ResumeHome> {
   ];
 
   List<Map<String, String>> _checkTextForErrors(String text) {
-    List<Map<String, String>> errors = [];
-    String lowerText = text.toLowerCase();
-    
-    // Check spelling
-    for (String rule in _commonMisspellings) {
-      List<String> parts = rule.split(':');
-      String wrong = parts[0];
-      String correct = parts[1];
-      
+    final errors = <Map<String, String>>[];
+    final lowerText = text.toLowerCase();
+
+    for (final rule in _commonMisspellings) {
+      final parts = rule.split(':');
+      final wrong = parts[0];
+      final correct = parts[1];
+
       if (lowerText.contains(wrong)) {
         errors.add({
           'type': 'Spelling',
           'error': wrong,
           'suggestion': correct,
-          'message': 'Misspelled word: "$wrong" should be "$correct"'
+          'message': 'Misspelled word: "$wrong" should be "$correct"',
         });
       }
     }
-    
-    // Check basic grammar
-    for (String rule in _grammarRules) {
-      List<String> parts = rule.split(':');
-      String pattern = parts[0];
-      String suggestion = parts[1];
-      
+
+    for (final rule in _grammarRules) {
+      final parts = rule.split(':');
+      final pattern = parts[0];
+      final suggestion = parts[1];
+
       if (lowerText.contains(pattern)) {
         errors.add({
           'type': 'Grammar',
           'error': pattern,
           'suggestion': suggestion,
-          'message': 'Grammar suggestion: Consider using "$suggestion" instead of "$pattern"'
+          'message':
+              'Grammar suggestion: Consider using "$suggestion" instead of "$pattern"',
         });
       }
     }
-    
-    // Check for sentence structure
-    if (!text.trim().isEmpty) {
-      // Check if sentences start with capital letters
-      List<String> sentences = text.split(RegExp(r'[.!?]+'));
-      for (String sentence in sentences) {
-        String trimmed = sentence.trim();
-        if (trimmed.isNotEmpty && !trimmed[0].toUpperCase().contains(trimmed[0])) {
+
+    if (text.trim().isNotEmpty) {
+      final sentences = text.split(RegExp(r'[.!?]+'));
+      for (final sentence in sentences) {
+        final trimmed = sentence.trim();
+        if (trimmed.isNotEmpty &&
+            !trimmed[0].toUpperCase().contains(trimmed[0])) {
           errors.add({
             'type': 'Capitalization',
             'error': trimmed,
             'suggestion': trimmed[0].toUpperCase() + trimmed.substring(1),
-            'message': 'Sentence should start with a capital letter'
+            'message': 'Sentence should start with a capital letter',
           });
         }
       }
     }
-    
+
     return errors;
-  }
-
-  Widget _buildGrammarCheckTab(StateSetter setDialogState) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Grammar & Spelling Check",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2D3748),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          Container(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _performGrammarCheck(setDialogState),
-              icon: const Icon(Icons.spellcheck, size: 20),
-              label: const Text("Check All Text"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6B8E7F),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          const Text(
-            "What this feature checks:",
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2D3748),
-            ),
-          ),
-          const SizedBox(height: 8),
-          
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0FFF4),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFB8E6C1)),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("• Common spelling mistakes", style: TextStyle(fontSize: 13)),
-                Text("• Basic grammar issues", style: TextStyle(fontSize: 13)),
-                Text("• Capitalization errors", style: TextStyle(fontSize: 13)),
-                Text("• Word usage suggestions", style: TextStyle(fontSize: 13)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _performGrammarCheck(StateSetter setDialogState) {
-    List<Map<String, String>> allErrors = [];
-    
-    // Check all text fields
-    allErrors.addAll(_checkTextForErrors(data.name));
-    allErrors.addAll(_checkTextForErrors(data.email));
-    allErrors.addAll(_checkTextForErrors(data.languages));
-    allErrors.addAll(_checkTextForErrors(data.frameworks));
-    allErrors.addAll(_checkTextForErrors(data.tools));
-    allErrors.addAll(_checkTextForErrors(data.others));
-    
-    // Check experiences
-    for (var experience in data.experiences) {
-      allErrors.addAll(_checkTextForErrors(experience.companyName));
-      allErrors.addAll(_checkTextForErrors(experience.jobTitle));
-      allErrors.addAll(_checkTextForErrors(experience.description));
-    }
-    
-    // Check projects
-    for (var project in data.projects) {
-      allErrors.addAll(_checkTextForErrors(project.title));
-      allErrors.addAll(_checkTextForErrors(project.description));
-    }
-    
-    // Check achievements and strengths
-    for (String achievement in data.achievements) {
-      allErrors.addAll(_checkTextForErrors(achievement));
-    }
-    
-    for (String strength in data.strengths) {
-      allErrors.addAll(_checkTextForErrors(strength));
-    }
-    
-    // Show results
-    _showGrammarCheckResults(allErrors);
-  }
-
-  void _showGrammarCheckResults(List<Map<String, String>> errors) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                errors.isEmpty ? Icons.check_circle : Icons.warning,
-                color: errors.isEmpty ? Colors.green : Colors.orange,
-                size: 24,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                errors.isEmpty ? "No Issues Found!" : "Issues Detected",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2D3748),
-                ),
-              ),
-            ],
-          ),
-          content: Container(
-            width: 400,
-            height: 300,
-            child: errors.isEmpty
-                ? const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.sentiment_very_satisfied,
-                        size: 48,
-                        color: Colors.green,
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        "Great! No spelling or grammar issues detected in your resume.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    itemCount: errors.length,
-                    itemBuilder: (context, index) {
-                      final error = errors[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: error['type'] == 'Spelling'
-                                ? Colors.red.withOpacity(0.1)
-                                : Colors.orange.withOpacity(0.1),
-                            child: Icon(
-                              error['type'] == 'Spelling'
-                                  ? Icons.spellcheck
-                                  : Icons.edit,
-                              color: error['type'] == 'Spelling'
-                                  ? Colors.red
-                                  : Colors.orange,
-                              size: 20,
-                            ),
-                          ),
-                          title: Text(
-                            error['type']!,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(error['message']!),
-                              const SizedBox(height: 4),
-                              Text(
-                                "Suggestion: ${error['suggestion']!}",
-                                style: const TextStyle(
-                                  color: Color(0xFF6B8E7F),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                "Close",
-                style: TextStyle(color: Color(0xFF6B8E7F)),
-              ),
-            ),
-          ],
-        );
-      },
-    );
   }
 }

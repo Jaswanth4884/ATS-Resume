@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'main.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -200,8 +199,10 @@ class _RegisterScreenState extends State<RegisterScreen>
             builder: (context, child) {
               return CustomPaint(
                 painter: ParticlePainter(_particleAnimation.value),
-                size: Size(MediaQuery.of(context).size.width,
-                    MediaQuery.of(context).size.height),
+                size: Size(
+                  MediaQuery.of(context).size.width,
+                  MediaQuery.of(context).size.height,
+                ),
               );
             },
           ),
@@ -345,8 +346,11 @@ class _RegisterScreenState extends State<RegisterScreen>
             autocorrect: false,
             decoration: InputDecoration(
               labelText: 'Full Name',
-              prefixIcon: const Icon(Icons.person_outline,
-                  color: Color(0xFF6B8E7F), size: 20),
+              prefixIcon: const Icon(
+                Icons.person_outline,
+                color: Color(0xFF6B8E7F),
+                size: 20,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -358,12 +362,15 @@ class _RegisterScreenState extends State<RegisterScreen>
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
             ),
             validator: (value) {
               if (value?.isEmpty ?? true) return 'Please enter your full name';
-              if (value!.trim().length < 2) return 'Name must be at least 2 characters';
+              if (value!.trim().length < 2)
+                return 'Name must be at least 2 characters';
               if (!RegExp(r'^[a-zA-Z\s]+$').hasMatch(value.trim())) {
                 return 'Name should only contain letters and spaces';
               }
@@ -380,8 +387,11 @@ class _RegisterScreenState extends State<RegisterScreen>
             textInputAction: TextInputAction.next,
             decoration: InputDecoration(
               labelText: 'Email Address',
-              prefixIcon: const Icon(Icons.email_outlined,
-                  color: Color(0xFF6B8E7F), size: 20),
+              prefixIcon: const Icon(
+                Icons.email_outlined,
+                color: Color(0xFF6B8E7F),
+                size: 20,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
@@ -393,21 +403,24 @@ class _RegisterScreenState extends State<RegisterScreen>
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
             ),
             validator: (value) {
-              if (value?.isEmpty ?? true) return 'Please enter your email address';
-              
+              if (value?.isEmpty ?? true)
+                return 'Please enter your email address';
+
               // Email regex pattern for validation
               final emailRegex = RegExp(
-                r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
               );
-              
+
               if (!emailRegex.hasMatch(value!.trim())) {
                 return 'Please enter a valid email address';
               }
-              
+
               return null;
             },
           ),
@@ -421,8 +434,11 @@ class _RegisterScreenState extends State<RegisterScreen>
             textInputAction: TextInputAction.next,
             decoration: InputDecoration(
               labelText: 'Password',
-              prefixIcon: const Icon(Icons.lock_outline,
-                  color: Color(0xFF6B8E7F), size: 20),
+              prefixIcon: const Icon(
+                Icons.lock_outline,
+                color: Color(0xFF6B8E7F),
+                size: 20,
+              ),
               suffixIcon: IconButton(
                 icon: Icon(
                   _isPasswordVisible
@@ -431,8 +447,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                   color: const Color(0xFF6B8E7F),
                   size: 20,
                 ),
-                onPressed: () => setState(
-                    () => _isPasswordVisible = !_isPasswordVisible),
+                onPressed: () =>
+                    setState(() => _isPasswordVisible = !_isPasswordVisible),
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -445,28 +461,31 @@ class _RegisterScreenState extends State<RegisterScreen>
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
             ),
             validator: (value) {
               if (value?.isEmpty ?? true) return 'Please enter a password';
-              if (value!.length < 8) return 'Password must be at least 8 characters';
-              
+              if (value!.length < 8)
+                return 'Password must be at least 8 characters';
+
               // Check for uppercase letter
               if (!RegExp(r'[A-Z]').hasMatch(value)) {
                 return 'Password must contain at least one uppercase letter';
               }
-              
+
               // Check for lowercase letter
               if (!RegExp(r'[a-z]').hasMatch(value)) {
                 return 'Password must contain at least one lowercase letter';
               }
-              
+
               // Check for number
               if (!RegExp(r'[0-9]').hasMatch(value)) {
                 return 'Password must contain at least one number';
               }
-              
+
               return null;
             },
           ),
@@ -480,8 +499,11 @@ class _RegisterScreenState extends State<RegisterScreen>
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
               labelText: 'Confirm Password',
-              prefixIcon: const Icon(Icons.lock_outline,
-                  color: Color(0xFF6B8E7F), size: 20),
+              prefixIcon: const Icon(
+                Icons.lock_outline,
+                color: Color(0xFF6B8E7F),
+                size: 20,
+              ),
               suffixIcon: IconButton(
                 icon: Icon(
                   _isConfirmPasswordVisible
@@ -491,7 +513,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                   size: 20,
                 ),
                 onPressed: () => setState(
-                    () => _isConfirmPasswordVisible = !_isConfirmPasswordVisible),
+                  () => _isConfirmPasswordVisible = !_isConfirmPasswordVisible,
+                ),
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -504,8 +527,10 @@ class _RegisterScreenState extends State<RegisterScreen>
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
             ),
             validator: (value) {
               if (value?.isEmpty ?? true) return 'Please confirm your password';
@@ -524,9 +549,12 @@ class _RegisterScreenState extends State<RegisterScreen>
                 height: 20,
                 child: Checkbox(
                   value: _agreeToTerms,
-                  onChanged: (value) => setState(() => _agreeToTerms = value ?? false),
+                  onChanged: (value) =>
+                      setState(() => _agreeToTerms = value ?? false),
                   activeColor: const Color(0xFF6B8E7F),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -534,7 +562,10 @@ class _RegisterScreenState extends State<RegisterScreen>
                 child: Text.rich(
                   TextSpan(
                     text: 'I agree to the ',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF4A5568)),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF4A5568),
+                    ),
                     children: [
                       TextSpan(
                         text: 'Terms and Conditions',
@@ -590,10 +621,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               )
             : const Text(
                 'Create Account',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
       ),
     );
@@ -670,10 +698,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
             label: const Text(
               'Continue with Google',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6B8E7F),
@@ -700,19 +725,12 @@ class _RegisterScreenState extends State<RegisterScreen>
                 borderRadius: BorderRadius.circular(3),
               ),
               child: const Center(
-                child: Icon(
-                  Icons.apple,
-                  size: 16,
-                  color: Colors.white,
-                ),
+                child: Icon(Icons.apple, size: 16, color: Colors.white),
               ),
             ),
             label: const Text(
               'Continue with Apple',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6B8E7F),
@@ -768,20 +786,12 @@ class GridPatternPainter extends CustomPainter {
 
     // Draw vertical lines
     for (double x = 0; x < size.width; x += spacing) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        paint,
-      );
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
 
     // Draw horizontal lines
     for (double y = 0; y < size.height; y += spacing) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        paint,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
 
@@ -802,7 +812,8 @@ class ParticlePainter extends CustomPainter {
     // Generate particles
     final particles = List.generate(15, (index) {
       final progress = (animationValue + index * 0.1) % 1.0;
-      final x = (size.width * 0.1) +
+      final x =
+          (size.width * 0.1) +
           (index * size.width / 15) +
           (50 * (progress - 0.5));
       final y = size.height * progress;

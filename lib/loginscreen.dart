@@ -441,19 +441,13 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  void _showSignUpDialog() {
-<<<<<<< HEAD
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => const RegisterScreen()));
-=======
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const RegisterScreen(),
-      ),
-    );
->>>>>>> d2a3332a60dd1c9db4f19c32801c3b5c9a67eb51
-  }
+void _showSignUpDialog() {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (context) => const RegisterScreen(),
+    ),
+  );
+}
 
   void _showSuccessMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(

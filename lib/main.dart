@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:country_code_picker/country_code_picker.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -24,6 +25,14 @@ class ProResumeApp extends StatelessWidget {
         primaryColor: const Color(0xFF6B8E7F),
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
+      locale: const Locale('en'),
+      localizationsDelegates: const [
+        CountryLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('en')],
       home: const LoginScreen(),
     );
   }
@@ -575,32 +584,23 @@ class _ResumeHomeState extends State<ResumeHome> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(left: 2, bottom: 6),
-                  child: Text(
-                    'Code',
-                    style: TextStyle(
-                      color: Color(0xFF718096),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
+            flex: 2,
+            child: SizedBox(
+              height: 56,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: compact
+                      ? const Color(0xFFFAFBFC)
+                      : const Color(0xFFF7FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFE2E8F0),
+                    width: 1.5,
                   ),
                 ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: compact
-                        ? const Color(0xFFFAFBFC)
-                        : const Color(0xFFF7FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFFE2E8F0),
-                      width: 1.5,
-                    ),
-                  ),
+                child: Localizations.override(
+                  context: context,
+                  locale: const Locale('en'),
                   child: CountryCodePicker(
                     onChanged: (country) {
                       setState(() {
@@ -629,7 +629,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                     ),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
-                      vertical: 10,
+                      vertical: 12,
                     ),
                     textStyle: const TextStyle(
                       fontSize: 13,
@@ -638,55 +638,58 @@ class _ResumeHomeState extends State<ResumeHome> {
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            flex: 7,
-            child: TextField(
-              controller: phoneController,
-              onChanged: (value) => setState(() => data.phone = value),
-              keyboardType: TextInputType.phone,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Color(0xFF2D3748),
-                fontWeight: FontWeight.w500,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Phone Number',
-                prefixIcon: Icon(
-                  Icons.phone,
-                  color: const Color(0xFF6B8E7F),
-                  size: compact ? 18 : 20,
-                ),
-                labelStyle: const TextStyle(
-                  color: Color(0xFF718096),
+            flex: 5,
+            child: SizedBox(
+              height: 56,
+              child: TextField(
+                controller: phoneController,
+                onChanged: (value) => setState(() => data.phone = value),
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(
                   fontSize: 14,
+                  color: Color(0xFF2D3748),
                   fontWeight: FontWeight.w500,
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 16,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(
-                    color: Color(0xFFE2E8F0),
-                    width: 1.5,
+                decoration: InputDecoration(
+                  labelText: 'Phone Number',
+                  prefixIcon: Icon(
+                    Icons.phone,
+                    color: const Color(0xFF6B8E7F),
+                    size: compact ? 18 : 20,
                   ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(
-                    color: Color(0xFF6B8E7F),
-                    width: 2,
+                  labelStyle: const TextStyle(
+                    color: Color(0xFF718096),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: Color(0xFFE2E8F0),
+                      width: 1.5,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF6B8E7F),
+                      width: 2,
+                    ),
+                  ),
+                  filled: true,
+                  fillColor: compact
+                      ? const Color(0xFFFAFBFC)
+                      : const Color(0xFFF7FAFC),
                 ),
-                filled: true,
-                fillColor: compact
-                    ? const Color(0xFFFAFBFC)
-                    : const Color(0xFFF7FAFC),
               ),
             ),
           ),
@@ -871,6 +874,173 @@ class _ResumeHomeState extends State<ResumeHome> {
     );
   }
 
+  ({int startYear, int? endYear, bool isPresent})? _tryParseYearRange(
+    String value,
+  ) {
+    final match = RegExp(
+      r'^(\d{4})\s*-\s*(\d{4}|present)$',
+      caseSensitive: false,
+    ).firstMatch(value.trim());
+    if (match == null) return null;
+
+    final startYear = int.tryParse(match.group(1)!);
+    final endToken = match.group(2)!;
+    if (startYear == null) {
+      return null;
+    }
+
+    if (endToken.toLowerCase() == 'present') {
+      return (startYear: startYear, endYear: null, isPresent: true);
+    }
+
+    final endYear = int.tryParse(endToken);
+    if (endYear == null || endYear < startYear) {
+      return null;
+    }
+
+    return (startYear: startYear, endYear: endYear, isPresent: false);
+  }
+
+  Future<int?> _pickYear({
+    required String helpText,
+    required int initialYear,
+    required int firstYear,
+    required int lastYear,
+  }) async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      locale: const Locale('en'),
+      helpText: helpText,
+      initialDate: DateTime(initialYear, 1, 1),
+      firstDate: DateTime(firstYear, 1, 1),
+      lastDate: DateTime(lastYear, 12, 31),
+      initialDatePickerMode: DatePickerMode.year,
+    );
+
+    return pickedDate?.year;
+  }
+
+  Widget _modernDurationField(
+    String label,
+    IconData icon,
+    Function(String) onChanged, {
+    required String fieldKey,
+    required String initialValue,
+    bool allowPresent = false,
+  }) {
+    final controller = _getFieldController(fieldKey, initialValue);
+
+    Future<void> pickRange() async {
+      final now = DateTime.now();
+      final parsedRange = _tryParseYearRange(controller.text);
+      final defaultStartYear = parsedRange?.startYear ?? (now.year - 1);
+      final defaultEndYear = parsedRange?.endYear ?? now.year;
+
+      final startYear = await _pickYear(
+        helpText: 'Select Start Year',
+        initialYear: defaultStartYear,
+        firstYear: 1970,
+        lastYear: now.year + 20,
+      );
+      if (startYear == null) return;
+
+      if (allowPresent) {
+        final usePresent = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('End Year'),
+            content: const Text('Set end as Present or select a year?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Select Year'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Present'),
+              ),
+            ],
+          ),
+        );
+
+        if (usePresent == null) return;
+
+        if (usePresent) {
+          final formatted = '$startYear - Present';
+          controller.text = formatted;
+          onChanged(formatted);
+          return;
+        }
+      }
+
+      final endYear = await _pickYear(
+        helpText: 'Select End Year',
+        initialYear: defaultEndYear < startYear ? startYear : defaultEndYear,
+        firstYear: startYear,
+        lastYear: now.year + 20,
+      );
+      if (endYear == null) return;
+
+      final formatted = '$startYear - $endYear';
+      controller.text = formatted;
+      onChanged(formatted);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: TextField(
+        controller: controller,
+        readOnly: true,
+        onTap: pickRange,
+        style: const TextStyle(
+          fontSize: 14,
+          color: Color(0xFF2D3748),
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: 'YYYY - YYYY',
+          prefixIcon: Icon(icon, color: const Color(0xFF6B8E7F), size: 20),
+          suffixIcon: IconButton(
+            onPressed: pickRange,
+            icon: const Icon(
+              Icons.calendar_month,
+              color: Color(0xFF6B8E7F),
+              size: 20,
+            ),
+          ),
+          labelStyle: const TextStyle(
+            color: Color(0xFF718096),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFF6B8E7F), width: 2),
+          ),
+          filled: true,
+          fillColor: const Color(0xFFF7FAFC),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Colors.red, width: 2),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildExperienceCard() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -977,12 +1147,13 @@ class _ResumeHomeState extends State<ResumeHome> {
                           fieldKey: 'experience.$index.location',
                           initialValue: experience.location,
                         ),
-                        _modernTextField(
+                        _modernDurationField(
                           "Duration",
                           Icons.schedule,
                           (v) => setState(() => experience.duration = v),
                           fieldKey: 'experience.$index.duration',
                           initialValue: experience.duration,
+                          allowPresent: true,
                         ),
                         _modernTextField(
                           "Description",
@@ -1211,7 +1382,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         fieldKey: 'education.university.location',
                         initialValue: data.universityLocation,
                       ),
-                      _modernTextField(
+                      _modernDurationField(
                         "University Duration",
                         Icons.schedule,
                         (v) => setState(() => data.universityDuration = v),
@@ -1263,7 +1434,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         fieldKey: 'education.college.location',
                         initialValue: data.collegeLocation,
                       ),
-                      _modernTextField(
+                      _modernDurationField(
                         "College Duration",
                         Icons.schedule,
                         (v) => setState(() => data.collegeDuration = v),
@@ -1315,7 +1486,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         fieldKey: 'education.highSchool.location',
                         initialValue: data.highSchoolLocation,
                       ),
-                      _modernTextField(
+                      _modernDurationField(
                         "High School Duration",
                         Icons.schedule,
                         (v) => setState(() => data.highSchoolDuration = v),
@@ -3686,7 +3857,9 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   pw.Widget _buildPDFProjectsSection() {
-    if (data.projects.every((proj) => proj.title.trim().isEmpty)) {
+    if (data.projects.every(
+      (proj) => proj.title.trim().isEmpty && proj.description.trim().isEmpty,
+    )) {
       return pw.SizedBox();
     }
 
@@ -3701,21 +3874,31 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ),
         pw.SizedBox(height: 8),
-        ...data.projects.where((proj) => proj.title.trim().isNotEmpty).map((
+        ...data.projects
+            .where(
+              (proj) =>
+                  proj.title.trim().isNotEmpty ||
+                  proj.description.trim().isNotEmpty,
+            )
+            .map((
           project,
         ) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(
-                'Project Name: ${project.title}',
-                style: pw.TextStyle(
-                  fontSize: bodyTextSize + 1,
-                  fontWeight: pw.FontWeight.bold,
+              if (project.title.trim().isNotEmpty)
+                pw.Text(
+                  project.title,
+                  style: pw.TextStyle(
+                    fontSize: bodyTextSize + 1,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
                 ),
-              ),
-              pw.SizedBox(height: 4),
-              _buildPDFBulletList(project.description),
+              if (project.title.trim().isNotEmpty &&
+                  project.description.trim().isNotEmpty)
+                pw.SizedBox(height: 4),
+              if (project.description.trim().isNotEmpty)
+                _buildPDFBulletList(project.description),
               pw.SizedBox(height: 12),
             ],
           );
@@ -4258,7 +4441,10 @@ class _ResumeHomeState extends State<ResumeHome> {
 
   Widget _buildProjectsSection() {
     if (data.projects.isEmpty ||
-        data.projects.every((proj) => proj.title.trim().isEmpty)) {
+        data.projects.every(
+          (proj) =>
+              proj.title.trim().isEmpty && proj.description.trim().isEmpty,
+        )) {
       return const SizedBox();
     }
 
@@ -4275,32 +4461,40 @@ class _ResumeHomeState extends State<ResumeHome> {
         ),
         const SizedBox(height: 8),
         ...data.projects
-            .where((proj) => proj.title.trim().isNotEmpty)
+            .where(
+              (proj) =>
+                  proj.title.trim().isNotEmpty ||
+                  proj.description.trim().isNotEmpty,
+            )
             .map(
               (project) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      "Project Name: ${project.title}",
-                      style: TextStyle(
-                        fontSize: bodyTextSize + 1,
-                        fontWeight: FontWeight.bold,
-                        color: bodyTextColor,
+                    if (project.title.trim().isNotEmpty)
+                      Text(
+                        project.title,
+                        style: TextStyle(
+                          fontSize: bodyTextSize + 1,
+                          fontWeight: FontWeight.bold,
+                          color: bodyTextColor,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    _buildSmartText(
-                      project.description,
-                      TextStyle(
-                        fontSize: bodyTextSize,
-                        color: bodyTextColor,
-                        height: 1.4,
+                    if (project.title.trim().isNotEmpty &&
+                        project.description.trim().isNotEmpty)
+                      const SizedBox(height: 4),
+                    if (project.description.trim().isNotEmpty)
+                      _buildSmartText(
+                        project.description,
+                        TextStyle(
+                          fontSize: bodyTextSize,
+                          color: bodyTextColor,
+                          height: 1.4,
+                        ),
+                        softWrap: true,
+                        overflow: TextOverflow.visible,
                       ),
-                      softWrap: true,
-                      overflow: TextOverflow.visible,
-                    ),
                   ],
                 ),
               ),

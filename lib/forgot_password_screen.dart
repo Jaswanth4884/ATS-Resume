@@ -86,6 +86,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     final error = result['error'];
+    final mockOtp = result['mockOtp'];
     if (error != null) {
       _showMessage(error, isError: true);
       return;
@@ -95,7 +96,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _step = 2;
     });
     _startResendCooldown();
-    _showMessage('OTP sent to your registered email.', isError: false);
+    _showMessage(
+      mockOtp != null
+          ? 'Demo OTP: $mockOtp'
+          : 'OTP sent to your registered email.',
+      isError: false,
+    );
   }
 
   Future<void> _resendOtp() async {
@@ -112,13 +118,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
 
     final error = result['error'];
+    final mockOtp = result['mockOtp'];
     if (error != null) {
       _showMessage(error, isError: true);
       return;
     }
 
     _startResendCooldown();
-    _showMessage('OTP sent again to your registered email.', isError: false);
+    _showMessage(
+      mockOtp != null
+          ? 'Demo OTP: $mockOtp'
+          : 'OTP sent again to your registered email.',
+      isError: false,
+    );
   }
 
   Future<void> _verifyOtp() async {

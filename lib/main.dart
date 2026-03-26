@@ -116,9 +116,6 @@ class _ResumeHomeState extends State<ResumeHome> {
   List<String> _atsRecommendations = [];
   String _atsScoreText = "Not analyzed";
 
-  // Mobile view state
-  bool _showPreviewOnMobile = false;
-
   @override
   void initState() {
     super.initState();
@@ -588,118 +585,55 @@ class _ResumeHomeState extends State<ResumeHome> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          // Determine if we're on mobile (< 900px width)
-          final isMobileView = constraints.maxWidth < 900;
+          final isMobile = constraints.maxWidth < 900;
           
-          // Debug: Print to console
-          // print('Screen width: ${constraints.maxWidth}, isMobileView: $isMobileView');
-          
-          if (isMobileView) {
-            // MOBILE LAYOUT: Tabs/Toggle for Form vs Preview
-            return Column(
-              children: [
-                // Debug banner (remove in production)
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-                  color: Colors.amber[100],
-                  child: Text(
-                    'Mobile View (${constraints.maxWidth.toStringAsFixed(0)}px)',
-                    style: const TextStyle(fontSize: 12, color: Colors.orange),
-                  ),
-                ),
-                // Tab/Toggle Header
-                Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Material(
-                            child: InkWell(
-                              onTap: () {
-                                setState(() => _showPreviewOnMobile = false);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                decoration: BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(
-                                      color: !_showPreviewOnMobile
-                                          ? const Color(0xFF6B8E7F)
-                                          : Colors.transparent,
-                                      width: 3,
-                                    ),
-                                  ),
-                                ),
-                                child: Text(
-                                  "Edit Resume",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: !_showPreviewOnMobile
-                                        ? const Color(0xFF6B8E7F)
-                                        : Colors.grey,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+          if (isMobile) {
+            // Mobile: Stack vertically with tabs
+            return DefaultTabController(
+              length: 2,
+              child: Column(
+                children: [
+                  // Tab bar
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: const Color(0xFFE2E8F0),
+                          width: 1,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Material(
-                            child: InkWell(
-                              onTap: () {
-                                setState(() => _showPreviewOnMobile = true);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                decoration: BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(
-                                      color: _showPreviewOnMobile
-                                          ? const Color(0xFF6B8E7F)
-                                          : Colors.transparent,
-                                      width: 3,
-                                    ),
-                                  ),
-                                ),
-                                child: Text(
-                                  "Preview",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: _showPreviewOnMobile
-                                        ? const Color(0xFF6B8E7F)
-                                        : Colors.grey,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                      ),
+                    ),
+                    child: TabBar(
+                      unselectedLabelColor: const Color(0xFF718096),
+                      labelColor: const Color(0xFF6B8E7F),
+                      indicatorColor: const Color(0xFF6B8E7F),
+                      tabs: const [
+                        Tab(
+                          icon: Icon(Icons.edit_note_outlined, size: 20),
+                          text: "Edit",
+                        ),
+                        Tab(
+                          icon: Icon(Icons.preview_outlined, size: 20),
+                          text: "Preview",
                         ),
                       ],
                     ),
                   ),
-                ),
-                // Content
-                Expanded(
-                  child: _showPreviewOnMobile
-                      ? _buildPreviewSection()
-                      : _buildFormSection(),
-                ),
-              ],
+                  // Tab content
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildFormSection(),
+                        _buildPreviewSection(),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             );
           } else {
-            // DESKTOP LAYOUT: Side-by-side
+            // Desktop: Side-by-side layout
             return Row(
               children: [
                 // LEFT — RESUME FORM (50%)
@@ -719,166 +653,96 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   Widget _buildFormSection() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 500;
-        
-        return Container(
-          color: const Color(0xFFF8FAFC),
-          child: Column(
-            children: [
-              // Header with Extra Features Button
-              Container(
-                padding: EdgeInsets.all(isCompact ? 12 : 20),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+    return Container(
+      color: const Color(0xFFF8FAFC),
+      child: Column(
+        children: [
+          // Header with Extra Features Button
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    "Resume Information",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A202C),
+                    ),
                   ),
                 ),
-                child: isCompact
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Resume Information",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A202C),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: _showATSScoreDialog,
-                                  icon: const Icon(Icons.analytics_outlined, size: 16),
-                                  label: const Text(
-                                    "ATS Score",
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF8B5CF6),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 8,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    elevation: 2,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: _showExtraEditingDialog,
-                                  icon: const Icon(Icons.palette, size: 16),
-                                  label: const Text(
-                                    "Customize",
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF6B8E7F),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 8,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    elevation: 2,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              "Resume Information",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1A202C),
-                              ),
-                            ),
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: _showATSScoreDialog,
-                            icon: const Icon(Icons.analytics_outlined, size: 18),
-                            label: const Text("ATS Score"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF8B5CF6),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              elevation: 2,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: _showExtraEditingDialog,
-                            icon: const Icon(Icons.palette, size: 18),
-                            label: const Text("Customize"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF6B8E7F),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              elevation: 2,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-
-              // Scrollable Form Content
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(isCompact ? 12 : 20),
-                  child: Column(
-                    children: [
-                      _buildPersonalInfoCard(),
-                      const SizedBox(height: 16),
-                      _buildSkillsCard(),
-                      const SizedBox(height: 16),
-                      _buildExperienceCard(),
-                      const SizedBox(height: 16),
-                      _buildProjectsCard(),
-                      const SizedBox(height: 16),
-                      _buildEducationCard(),
-                      const SizedBox(height: 16),
-                      _buildAchievementsCard(),
-                      const SizedBox(height: 16),
-                      _buildStrengthsCard(),
-                      const SizedBox(height: 20),
-                    ],
+                ElevatedButton.icon(
+                  onPressed: _showATSScoreDialog,
+                  icon: const Icon(Icons.analytics_outlined, size: 18),
+                  label: const Text("ATS Score"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B5CF6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 2,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _showExtraEditingDialog,
+                  icon: const Icon(Icons.palette, size: 18),
+                  label: const Text("Customize"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6B8E7F),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 2,
+                  ),
+                ),
+              ],
+            ),
           ),
-        );
-      },
+
+          // Scrollable Form Content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  _buildPersonalInfoCard(),
+                  const SizedBox(height: 16),
+                  _buildSkillsCard(),
+                  const SizedBox(height: 16),
+                  _buildExperienceCard(),
+                  const SizedBox(height: 16),
+                  _buildProjectsCard(),
+                  const SizedBox(height: 16),
+                  _buildEducationCard(),
+                  const SizedBox(height: 16),
+                  _buildAchievementsCard(),
+                  const SizedBox(height: 16),
+                  _buildStrengthsCard(),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2245,159 +2109,91 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   Widget _buildPreviewSection() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 500;
-        
-        return Container(
-          color: const Color(0xFFF1F5F9),
-          child: Column(
-            children: [
-              // Header with Action Buttons
-              Container(
-                padding: EdgeInsets.all(isCompact ? 12 : 20),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+    return Container(
+      color: const Color(0xFFF1F5F9),
+      child: Column(
+        children: [
+          // Header with Action Buttons
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    "Live Preview",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A202C),
+                    ),
                   ),
                 ),
-                child: isCompact
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Live Preview",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1A202C),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: _downloadAsPDF,
-                                  icon: const Icon(Icons.download_rounded, size: 16),
-                                  label: const Text(
-                                    "PDF",
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF6B8E7F),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 8,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    elevation: 2,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: _copyAsLink,
-                                  icon: const Icon(Icons.share_rounded, size: 16),
-                                  label: const Text(
-                                    "Share",
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF8E6B7F),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 8,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    elevation: 2,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              "Live Preview",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1A202C),
-                              ),
-                            ),
-                          ),
-                          // Download PDF Button
-                          Container(
-                            margin: const EdgeInsets.only(right: 12),
-                            child: ElevatedButton.icon(
-                              onPressed: _downloadAsPDF,
-                              icon: const Icon(Icons.download_rounded, size: 18),
-                              label: const Text(
-                                "Download PDF",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF6B8E7F),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                elevation: 2,
-                                shadowColor: Colors.black.withOpacity(0.2),
-                              ),
-                            ),
-                          ),
-                          // Copy Link Button
-                          ElevatedButton.icon(
-                            onPressed: _copyAsLink,
-                            icon: const Icon(Icons.share_rounded, size: 18),
-                            label: const Text(
-                              "Share Link",
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF8E6B7F),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              elevation: 2,
-                              shadowColor: Colors.black.withOpacity(0.2),
-                            ),
-                          ),
-                        ],
+                // Download PDF Button
+                Container(
+                  margin: const EdgeInsets.only(right: 12),
+                  child: ElevatedButton.icon(
+                    onPressed: _downloadAsPDF,
+                    icon: const Icon(Icons.download_rounded, size: 18),
+                    label: const Text(
+                      "Download PDF",
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
-              ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6B8E7F),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 2,
+                      shadowColor: Colors.black.withOpacity(0.2),
+                    ),
+                  ),
+                ),
+                // Copy Link Button
+                ElevatedButton.icon(
+                  onPressed: _copyAsLink,
+                  icon: const Icon(Icons.share_rounded, size: 18),
+                  label: const Text(
+                    "Share Link",
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8E6B7F),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 2,
+                    shadowColor: Colors.black.withOpacity(0.2),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-              // A4 Preview Container
-              Expanded(
-                child: Center(
-                  child: Container(
-                    margin: const EdgeInsets.all(20),
-                    constraints: const BoxConstraints(maxWidth: 600),
+          // A4 Preview Container
+          Expanded(
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.all(20),
+                constraints: const BoxConstraints(maxWidth: 600),
                 child: AspectRatio(
                   aspectRatio: 210 / 297, // A4 ratio
                   child: Container(
@@ -2550,8 +2346,6 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ],
       ),
-        );
-      },
     );
   }
 

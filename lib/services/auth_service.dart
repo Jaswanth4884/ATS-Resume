@@ -6,14 +6,11 @@ import 'dart:convert';
 class AuthService {
   // ========== CONFIGURATION ==========
   // Set to true to use mock authentication (for testing without backend)
-  // Set to false to use real backend + email OTP.
-  static const bool USE_MOCK_AUTH = false;
-
-  // Configure with --dart-define=API_BASE_URL=http://localhost:3000
-  static const String _baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:3000',
-  );
+  // Set to false and update _baseUrl to use real backend
+  static const bool USE_MOCK_AUTH = true;
+  
+  // Replace with your actual backend API URL
+  static const String _baseUrl = 'https://api.example.com';
 
   static const String _mockUsersStorageKey = 'auth_mock_users_v1';
   static const String _mockPendingOtpStorageKey = 'auth_mock_pending_otp_v1';
@@ -39,16 +36,6 @@ class AuthService {
   static final Map<String, String> _pendingPasswordResetOtps = {};
   static bool _passwordResetOtpsLoaded = false;
   static final Map<String, String> _passwordResetTokens = {};
-
-  static String _formatNetworkError(Object error) {
-    final message = error.toString();
-    if (message.contains('Failed to fetch') ||
-        message.contains('Connection refused') ||
-        message.contains('SocketException')) {
-      return 'Cannot connect to backend ($_baseUrl). Start backend server and try again.';
-    }
-    return 'Network error: $message';
-  }
 
   // Store token in memory (in production, use secure_storage)
   static String? _authToken;
@@ -111,7 +98,7 @@ class AuthService {
     } on FormatException {
       return {'token': null, 'error': 'Invalid response format from server'};
     } catch (e) {
-      return {'token': null, 'error': _formatNetworkError(e)};
+      return {'token': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -200,7 +187,7 @@ class AuthService {
         return {'token': null, 'error': message};
       }
     } catch (e) {
-      return {'token': null, 'error': _formatNetworkError(e)};
+      return {'token': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -413,7 +400,7 @@ class AuthService {
       final message = errorData['message'] as String? ?? 'Failed to send OTP';
       return {'success': null, 'error': message};
     } catch (e) {
-      return {'success': null, 'error': _formatNetworkError(e)};
+      return {'success': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -467,7 +454,7 @@ class AuthService {
       final message = errorData['message'] as String? ?? 'OTP verification failed';
       return {'success': null, 'error': message};
     } catch (e) {
-      return {'success': null, 'error': _formatNetworkError(e)};
+      return {'success': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -625,7 +612,7 @@ class AuthService {
       _authToken = null;
       _tokenExpiry = null;
       _currentUserIdentifier = null;
-      return {'token': null, 'error': _formatNetworkError(e)};
+      return {'token': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -673,7 +660,7 @@ class AuthService {
         return {'success': false, 'error': message};
       }
     } catch (e) {
-      return {'success': false, 'error': _formatNetworkError(e)};
+      return {'success': false, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -726,7 +713,7 @@ class AuthService {
           errorData['message'] as String? ?? 'Failed to send password reset OTP';
       return {'success': null, 'error': message};
     } catch (e) {
-      return {'success': null, 'error': _formatNetworkError(e)};
+      return {'success': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -783,7 +770,7 @@ class AuthService {
       final message = errorData['message'] as String? ?? 'OTP verification failed';
       return {'success': null, 'token': null, 'error': message};
     } catch (e) {
-      return {'success': null, 'token': null, 'error': _formatNetworkError(e)};
+      return {'success': null, 'token': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 
@@ -860,7 +847,7 @@ class AuthService {
           errorData['message'] as String? ?? 'Password change failed';
       return {'success': null, 'error': message};
     } catch (e) {
-      return {'success': null, 'error': _formatNetworkError(e)};
+      return {'success': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
 }

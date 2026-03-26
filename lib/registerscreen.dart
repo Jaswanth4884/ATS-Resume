@@ -123,6 +123,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
       final otpResult = await AuthService.sendRegistrationOtp(email: email);
       final otpError = otpResult['error'];
+      final mockOtp = otpResult['mockOtp'];
 
       if (!mounted) {
         return;
@@ -142,7 +143,11 @@ class _RegisterScreenState extends State<RegisterScreen>
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Registration successful! OTP sent to your email.'),
+          content: Text(
+            mockOtp != null
+                ? 'Registration successful! Demo OTP: $mockOtp'
+                : 'Registration successful! OTP sent to your email.',
+          ),
           backgroundColor: const Color(0xFF6B8E7F),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           behavior: SnackBarBehavior.floating,

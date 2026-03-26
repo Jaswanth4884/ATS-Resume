@@ -6,9 +6,12 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'resume_model.dart';
 import 'loginscreen.dart';
+import 'services/auth_service.dart';
 
 void main() => runApp(const ProResumeApp());
 
@@ -48,6 +51,8 @@ class ResumeHome extends StatefulWidget {
 class _ResumeHomeState extends State<ResumeHome> {
   ResumeData data = ResumeData();
   final Map<String, TextEditingController> _fieldControllers = {};
+  static const String _resumeDraftKeyPrefix = 'resume_draft_v1_';
+  Timer? _draftAutoSaveTimer;
 
   // Section ordering
   List<String> sectionOrder = [
@@ -111,14 +116,34 @@ class _ResumeHomeState extends State<ResumeHome> {
   List<String> _atsRecommendations = [];
   String _atsScoreText = "Not analyzed";
 
+  // Mobile view state
+  bool _showPreviewOnMobile = false;
+
   @override
   void initState() {
     super.initState();
     _syncPhoneCountryFromPhone();
+    _validateSession();
+    _loadDraft();
+    _startDraftAutoSave();
+  }
+
+  Future<void> _validateSession() async {
+    // Check if user has a valid session/token
+    final isValid = await AuthService.validateSession();
+    
+    if (!isValid && mounted) {
+      // Session invalid or token expired, redirect to login
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    }
   }
 
   @override
   void dispose() {
+    _draftAutoSaveTimer?.cancel();
+    _saveDraft();
     for (final controller in _fieldControllers.values) {
       controller.dispose();
     }
@@ -202,6 +227,310 @@ class _ResumeHomeState extends State<ResumeHome> {
     return '$_selectedPhoneCountryCode $phone';
   }
 
+  Future<void> _handleLogout() async {
+    await _saveDraft();
+
+    // Clear session and logout
+    await AuthService.logout();
+    
+    if (mounted) {
+      // Redirect to login
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    }
+  }
+
+  String _resumeDraftStorageKey() {
+    final userId = AuthService.currentUserIdentifier;
+    if (userId == null || userId.trim().isEmpty) {
+      return '${_resumeDraftKeyPrefix}guest';
+    }
+    final normalized = userId.trim().toLowerCase();
+    return '$_resumeDraftKeyPrefix$normalized';
+  }
+
+  void _startDraftAutoSave() {
+    _draftAutoSaveTimer?.cancel();
+    _draftAutoSaveTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _saveDraft();
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final draftMap = _buildResumeStateMap();
+      await prefs.setString(_resumeDraftStorageKey(), jsonEncode(draftMap));
+    } catch (_) {
+      // Ignore storage failures; app can still continue editing.
+    }
+  }
+
+  Future<void> _loadDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_resumeDraftStorageKey());
+      if (raw == null || raw.isEmpty) {
+        return;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _applyResumeStateMap(decoded);
+      });
+      _clearFieldControllersByPrefix('');
+    } catch (_) {
+      // Ignore invalid drafts and continue with defaults.
+    }
+  }
+
+  Map<String, dynamic> _buildResumeStateMap() {
+    return {
+      'name': data.name,
+      'role': data.role,
+      'email': data.email,
+      'phone': data.phone,
+      'phoneCountry': {
+        'name': _selectedPhoneCountryName,
+        'dialCode': _selectedPhoneCountryCode,
+      },
+      'github': data.github,
+      'linkedin': data.linkedin,
+      'githubName': data.githubName,
+      'linkedinName': data.linkedinName,
+      'street': data.street,
+      'city': data.city,
+      'zipCode': data.zipCode,
+      'languages': data.languages,
+      'frameworks': data.frameworks,
+      'tools': data.tools,
+      'others': data.others,
+      'experiences': data.experiences
+          .map(
+            (exp) => {
+              'companyName': exp.companyName,
+              'jobTitle': exp.jobTitle,
+              'location': exp.location,
+              'duration': exp.duration,
+              'description': exp.description,
+            },
+          )
+          .toList(),
+      'projects': data.projects
+          .map((proj) => {'title': proj.title, 'description': proj.description})
+          .toList(),
+      'university': data.university,
+      'universityGPA': data.universityGPA,
+      'universityLocation': data.universityLocation,
+      'universityDuration': data.universityDuration,
+      'college': data.college,
+      'collegeGPA': data.collegeGPA,
+      'collegeLocation': data.collegeLocation,
+      'collegeDuration': data.collegeDuration,
+      'highSchool': data.highSchool,
+      'highSchoolGPA': data.highSchoolGPA,
+      'highSchoolLocation': data.highSchoolLocation,
+      'highSchoolDuration': data.highSchoolDuration,
+      'achievements': data.achievements,
+      'strengths': data.strengths,
+      'customSections': customSections,
+      'sectionOrder': sectionOrder,
+      'sectionNames': {
+        'skills': skillsSectionName,
+        'experience': experienceSectionName,
+        'projects': projectsSectionName,
+        'education': educationSectionName,
+        'achievements': achievementsSectionName,
+        'strengths': strengthsSectionName,
+      },
+      'skillLabels': {
+        'languages': skillsLanguagesLabel,
+        'frameworks': skillsFrameworksLabel,
+        'tools': skillsToolsLabel,
+        'others': skillsOthersLabel,
+      },
+      'extraSkillRows': extraSkillRows,
+      'formatting': {
+        'nameTextSize': nameTextSize,
+        'sectionHeaderSize': sectionHeaderSize,
+        'bodyTextSize': bodyTextSize,
+        'nameTextColor': nameTextColor.value,
+        'sectionHeaderColor': sectionHeaderColor.value,
+        'bodyTextColor': bodyTextColor.value,
+        'contactLinkColor': contactLinkColor.value,
+      },
+    };
+  }
+
+  void _applyResumeStateMap(Map<String, dynamic> resumeData) {
+    String stringValue(String key, String fallback) {
+      final value = resumeData[key];
+      return value is String ? value : fallback;
+    }
+
+    data.name = stringValue('name', data.name);
+    data.role = stringValue('role', data.role);
+    data.email = stringValue('email', data.email);
+    data.phone = stringValue('phone', data.phone);
+    data.github = stringValue('github', data.github);
+    data.linkedin = stringValue('linkedin', data.linkedin);
+    data.githubName = stringValue('githubName', data.githubName);
+    data.linkedinName = stringValue('linkedinName', data.linkedinName);
+    data.street = stringValue('street', data.street);
+    data.city = stringValue('city', data.city);
+    data.zipCode = stringValue('zipCode', data.zipCode);
+    data.languages = stringValue('languages', data.languages);
+    data.frameworks = stringValue('frameworks', data.frameworks);
+    data.tools = stringValue('tools', data.tools);
+    data.others = stringValue('others', data.others);
+
+    data.university = stringValue('university', data.university);
+    data.universityGPA = stringValue('universityGPA', data.universityGPA);
+    data.universityLocation =
+      stringValue('universityLocation', data.universityLocation);
+    data.universityDuration =
+      stringValue('universityDuration', data.universityDuration);
+    data.college = stringValue('college', data.college);
+    data.collegeGPA = stringValue('collegeGPA', data.collegeGPA);
+    data.collegeLocation = stringValue('collegeLocation', data.collegeLocation);
+    data.collegeDuration = stringValue('collegeDuration', data.collegeDuration);
+    data.highSchool = stringValue('highSchool', data.highSchool);
+    data.highSchoolGPA = stringValue('highSchoolGPA', data.highSchoolGPA);
+    data.highSchoolLocation =
+      stringValue('highSchoolLocation', data.highSchoolLocation);
+    data.highSchoolDuration =
+      stringValue('highSchoolDuration', data.highSchoolDuration);
+
+    final phoneCountry = resumeData['phoneCountry'];
+    if (phoneCountry is Map<String, dynamic>) {
+      _selectedPhoneCountryName =
+          (phoneCountry['name'] as String?) ?? _selectedPhoneCountryName;
+      _selectedPhoneCountryCode =
+          (phoneCountry['dialCode'] as String?) ?? _selectedPhoneCountryCode;
+    }
+
+    final experiences = resumeData['experiences'];
+    if (experiences is List) {
+      data.experiences = experiences
+          .whereType<Map>()
+          .map(
+            (exp) => ExperienceItem(
+              companyName: (exp['companyName'] ?? '').toString(),
+              jobTitle: (exp['jobTitle'] ?? '').toString(),
+              location: (exp['location'] ?? '').toString(),
+              duration: (exp['duration'] ?? '').toString(),
+              description: (exp['description'] ?? '').toString(),
+            ),
+          )
+          .toList();
+    }
+
+    final projects = resumeData['projects'];
+    if (projects is List) {
+      data.projects = projects
+          .whereType<Map>()
+          .map(
+            (project) => ProjectItem(
+              title: (project['title'] ?? '').toString(),
+              description: (project['description'] ?? '').toString(),
+            ),
+          )
+          .toList();
+    }
+
+    final achievements = resumeData['achievements'];
+    if (achievements is List) {
+      data.achievements = achievements.map((item) => item.toString()).toList();
+    }
+
+    final strengths = resumeData['strengths'];
+    if (strengths is List) {
+      data.strengths = strengths.map((item) => item.toString()).toList();
+    }
+
+    final loadedCustomSections = resumeData['customSections'];
+    if (loadedCustomSections is List) {
+      customSections = loadedCustomSections
+          .whereType<Map>()
+          .map(
+            (item) => item.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            ),
+          )
+          .toList();
+    }
+
+    final loadedSectionOrder = resumeData['sectionOrder'];
+    if (loadedSectionOrder is List) {
+      sectionOrder = loadedSectionOrder.map((item) => item.toString()).toList();
+    }
+
+    final sectionNames = resumeData['sectionNames'];
+    if (sectionNames is Map<String, dynamic>) {
+      skillsSectionName = sectionNames['skills'] as String? ?? skillsSectionName;
+      experienceSectionName =
+          sectionNames['experience'] as String? ?? experienceSectionName;
+      projectsSectionName =
+          sectionNames['projects'] as String? ?? projectsSectionName;
+      educationSectionName =
+          sectionNames['education'] as String? ?? educationSectionName;
+      achievementsSectionName =
+          sectionNames['achievements'] as String? ?? achievementsSectionName;
+      strengthsSectionName =
+          sectionNames['strengths'] as String? ?? strengthsSectionName;
+    }
+
+    final skillLabels = resumeData['skillLabels'];
+    if (skillLabels is Map<String, dynamic>) {
+      skillsLanguagesLabel =
+          skillLabels['languages'] as String? ?? skillsLanguagesLabel;
+      skillsFrameworksLabel =
+          skillLabels['frameworks'] as String? ?? skillsFrameworksLabel;
+      skillsToolsLabel = skillLabels['tools'] as String? ?? skillsToolsLabel;
+      skillsOthersLabel = skillLabels['others'] as String? ?? skillsOthersLabel;
+    }
+
+    final loadedExtraSkillRows = resumeData['extraSkillRows'];
+    if (loadedExtraSkillRows is List) {
+      extraSkillRows = loadedExtraSkillRows
+          .whereType<Map>()
+          .map(
+            (item) => {
+              'heading': (item['heading'] ?? '').toString(),
+              'skills': (item['skills'] ?? '').toString(),
+            },
+          )
+          .toList();
+    }
+
+    final formatting = resumeData['formatting'];
+    if (formatting is Map<String, dynamic>) {
+      nameTextSize = (formatting['nameTextSize'] as num?)?.toDouble() ?? nameTextSize;
+      sectionHeaderSize =
+          (formatting['sectionHeaderSize'] as num?)?.toDouble() ?? sectionHeaderSize;
+      bodyTextSize = (formatting['bodyTextSize'] as num?)?.toDouble() ?? bodyTextSize;
+      nameTextColor = Color((formatting['nameTextColor'] as int?) ?? nameTextColor.value);
+      sectionHeaderColor = Color(
+        (formatting['sectionHeaderColor'] as int?) ?? sectionHeaderColor.value,
+      );
+      bodyTextColor =
+          Color((formatting['bodyTextColor'] as int?) ?? bodyTextColor.value);
+      contactLinkColor =
+          Color((formatting['contactLinkColor'] as int?) ?? contactLinkColor.value);
+    }
+
+    _syncPhoneCountryFromPhone();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -218,6 +547,34 @@ class _ResumeHomeState extends State<ResumeHome> {
             letterSpacing: 0.5,
           ),
         ),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'logout') {
+                _handleLogout();
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 18, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Logout'),
+                  ],
+                ),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                Icons.more_vert,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -231,114 +588,297 @@ class _ResumeHomeState extends State<ResumeHome> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          return Row(
-            children: [
-              // LEFT — RESUME FORM (50%)
-              Expanded(flex: 1, child: _buildFormSection()),
+          // Determine if we're on mobile (< 900px width)
+          final isMobileView = constraints.maxWidth < 900;
+          
+          // Debug: Print to console
+          // print('Screen width: ${constraints.maxWidth}, isMobileView: $isMobileView');
+          
+          if (isMobileView) {
+            // MOBILE LAYOUT: Tabs/Toggle for Form vs Preview
+            return Column(
+              children: [
+                // Debug banner (remove in production)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
+                  color: Colors.amber[100],
+                  child: Text(
+                    'Mobile View (${constraints.maxWidth.toStringAsFixed(0)}px)',
+                    style: const TextStyle(fontSize: 12, color: Colors.orange),
+                  ),
+                ),
+                // Tab/Toggle Header
+                Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Material(
+                            child: InkWell(
+                              onTap: () {
+                                setState(() => _showPreviewOnMobile = false);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: !_showPreviewOnMobile
+                                          ? const Color(0xFF6B8E7F)
+                                          : Colors.transparent,
+                                      width: 3,
+                                    ),
+                                  ),
+                                ),
+                                child: Text(
+                                  "Edit Resume",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: !_showPreviewOnMobile
+                                        ? const Color(0xFF6B8E7F)
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Material(
+                            child: InkWell(
+                              onTap: () {
+                                setState(() => _showPreviewOnMobile = true);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: _showPreviewOnMobile
+                                          ? const Color(0xFF6B8E7F)
+                                          : Colors.transparent,
+                                      width: 3,
+                                    ),
+                                  ),
+                                ),
+                                child: Text(
+                                  "Preview",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: _showPreviewOnMobile
+                                        ? const Color(0xFF6B8E7F)
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // Content
+                Expanded(
+                  child: _showPreviewOnMobile
+                      ? _buildPreviewSection()
+                      : _buildFormSection(),
+                ),
+              ],
+            );
+          } else {
+            // DESKTOP LAYOUT: Side-by-side
+            return Row(
+              children: [
+                // LEFT — RESUME FORM (50%)
+                Expanded(flex: 1, child: _buildFormSection()),
 
-              // DIVIDER
-              Container(width: 1, color: const Color(0xFFE2E8F0)),
+                // DIVIDER
+                Container(width: 1, color: const Color(0xFFE2E8F0)),
 
-              // RIGHT — PREVIEW SECTION (50%)
-              Expanded(flex: 1, child: _buildPreviewSection()),
-            ],
-          );
+                // RIGHT — PREVIEW SECTION (50%)
+                Expanded(flex: 1, child: _buildPreviewSection()),
+              ],
+            );
+          }
         },
       ),
     );
   }
 
   Widget _buildFormSection() {
-    return Container(
-      color: const Color(0xFFF8FAFC),
-      child: Column(
-        children: [
-          // Header with Extra Features Button
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 500;
+        
+        return Container(
+          color: const Color(0xFFF8FAFC),
+          child: Column(
+            children: [
+              // Header with Extra Features Button
+              Container(
+                padding: EdgeInsets.all(isCompact ? 12 : 20),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                  ),
+                ),
+                child: isCompact
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Resume Information",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A202C),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _showATSScoreDialog,
+                                  icon: const Icon(Icons.analytics_outlined, size: 16),
+                                  label: const Text(
+                                    "ATS Score",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF8B5CF6),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    elevation: 2,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _showExtraEditingDialog,
+                                  icon: const Icon(Icons.palette, size: 16),
+                                  label: const Text(
+                                    "Customize",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF6B8E7F),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    elevation: 2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              "Resume Information",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1A202C),
+                              ),
+                            ),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: _showATSScoreDialog,
+                            icon: const Icon(Icons.analytics_outlined, size: 18),
+                            label: const Text("ATS Score"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF8B5CF6),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              elevation: 2,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: _showExtraEditingDialog,
+                            icon: const Icon(Icons.palette, size: 18),
+                            label: const Text("Customize"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF6B8E7F),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              elevation: 2,
+                            ),
+                          ),
+                        ],
+                      ),
               ),
-            ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    "Resume Information",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A202C),
-                    ),
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _showATSScoreDialog,
-                  icon: const Icon(Icons.analytics_outlined, size: 18),
-                  label: const Text("ATS Score"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8B5CF6),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 2,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: _showExtraEditingDialog,
-                  icon: const Icon(Icons.palette, size: 18),
-                  label: const Text("Customize"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6B8E7F),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 2,
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          // Scrollable Form Content
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  _buildPersonalInfoCard(),
-                  const SizedBox(height: 16),
-                  _buildSkillsCard(),
-                  const SizedBox(height: 16),
-                  _buildExperienceCard(),
-                  const SizedBox(height: 16),
-                  _buildProjectsCard(),
-                  const SizedBox(height: 16),
-                  _buildEducationCard(),
-                  const SizedBox(height: 16),
-                  _buildAchievementsCard(),
-                  const SizedBox(height: 16),
-                  _buildStrengthsCard(),
-                  const SizedBox(height: 20),
-                ],
+              // Scrollable Form Content
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(isCompact ? 12 : 20),
+                  child: Column(
+                    children: [
+                      _buildPersonalInfoCard(),
+                      const SizedBox(height: 16),
+                      _buildSkillsCard(),
+                      const SizedBox(height: 16),
+                      _buildExperienceCard(),
+                      const SizedBox(height: 16),
+                      _buildProjectsCard(),
+                      const SizedBox(height: 16),
+                      _buildEducationCard(),
+                      const SizedBox(height: 16),
+                      _buildAchievementsCard(),
+                      const SizedBox(height: 16),
+                      _buildStrengthsCard(),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1705,91 +2245,159 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   Widget _buildPreviewSection() {
-    return Container(
-      color: const Color(0xFFF1F5F9),
-      child: Column(
-        children: [
-          // Header with Action Buttons
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 500;
+        
+        return Container(
+          color: const Color(0xFFF1F5F9),
+          child: Column(
+            children: [
+              // Header with Action Buttons
+              Container(
+                padding: EdgeInsets.all(isCompact ? 12 : 20),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                  ),
+                ),
+                child: isCompact
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Live Preview",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A202C),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _downloadAsPDF,
+                                  icon: const Icon(Icons.download_rounded, size: 16),
+                                  label: const Text(
+                                    "PDF",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF6B8E7F),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    elevation: 2,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _copyAsLink,
+                                  icon: const Icon(Icons.share_rounded, size: 16),
+                                  label: const Text(
+                                    "Share",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF8E6B7F),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    elevation: 2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              "Live Preview",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1A202C),
+                              ),
+                            ),
+                          ),
+                          // Download PDF Button
+                          Container(
+                            margin: const EdgeInsets.only(right: 12),
+                            child: ElevatedButton.icon(
+                              onPressed: _downloadAsPDF,
+                              icon: const Icon(Icons.download_rounded, size: 18),
+                              label: const Text(
+                                "Download PDF",
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF6B8E7F),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                elevation: 2,
+                                shadowColor: Colors.black.withOpacity(0.2),
+                              ),
+                            ),
+                          ),
+                          // Copy Link Button
+                          ElevatedButton.icon(
+                            onPressed: _copyAsLink,
+                            icon: const Icon(Icons.share_rounded, size: 18),
+                            label: const Text(
+                              "Share Link",
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF8E6B7F),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              elevation: 2,
+                              shadowColor: Colors.black.withOpacity(0.2),
+                            ),
+                          ),
+                        ],
+                      ),
               ),
-            ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    "Live Preview",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A202C),
-                    ),
-                  ),
-                ),
-                // Download PDF Button
-                Container(
-                  margin: const EdgeInsets.only(right: 12),
-                  child: ElevatedButton.icon(
-                    onPressed: _downloadAsPDF,
-                    icon: const Icon(Icons.download_rounded, size: 18),
-                    label: const Text(
-                      "Download PDF",
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6B8E7F),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 2,
-                      shadowColor: Colors.black.withOpacity(0.2),
-                    ),
-                  ),
-                ),
-                // Copy Link Button
-                ElevatedButton.icon(
-                  onPressed: _copyAsLink,
-                  icon: const Icon(Icons.share_rounded, size: 18),
-                  label: const Text(
-                    "Share Link",
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8E6B7F),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 2,
-                    shadowColor: Colors.black.withOpacity(0.2),
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          // A4 Preview Container
-          Expanded(
-            child: Center(
-              child: Container(
-                margin: const EdgeInsets.all(20),
-                constraints: const BoxConstraints(maxWidth: 600),
+              // A4 Preview Container
+              Expanded(
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.all(20),
+                    constraints: const BoxConstraints(maxWidth: 600),
                 child: AspectRatio(
                   aspectRatio: 210 / 297, // A4 ratio
                   child: Container(
@@ -1942,6 +2550,8 @@ class _ResumeHomeState extends State<ResumeHome> {
           ),
         ],
       ),
+        );
+      },
     );
   }
 
@@ -3613,82 +4223,7 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   String _generateResumeLink() {
-    // Create a data object with all resume information
-    Map<String, dynamic> resumeData = {
-      'name': data.name,
-      'role': data.role,
-      'email': data.email,
-      'phone': data.phone,
-      'phoneCountry': {
-        'name': _selectedPhoneCountryName,
-        'dialCode': _selectedPhoneCountryCode,
-      },
-      'github': data.github,
-      'linkedin': data.linkedin,
-      'githubName': data.githubName,
-      'linkedinName': data.linkedinName,
-      'street': data.street,
-      'city': data.city,
-      'zipCode': data.zipCode,
-      'languages': data.languages,
-      'frameworks': data.frameworks,
-      'tools': data.tools,
-      'others': data.others,
-      'experiences': data.experiences
-          .map(
-            (exp) => {
-              'companyName': exp.companyName,
-              'jobTitle': exp.jobTitle,
-              'location': exp.location,
-              'duration': exp.duration,
-              'description': exp.description,
-            },
-          )
-          .toList(),
-      'projects': data.projects
-          .map((proj) => {'title': proj.title, 'description': proj.description})
-          .toList(),
-      'university': data.university,
-      'universityGPA': data.universityGPA,
-      'universityLocation': data.universityLocation,
-      'universityDuration': data.universityDuration,
-      'college': data.college,
-      'collegeGPA': data.collegeGPA,
-      'collegeLocation': data.collegeLocation,
-      'collegeDuration': data.collegeDuration,
-      'highSchool': data.highSchool,
-      'highSchoolGPA': data.highSchoolGPA,
-      'highSchoolLocation': data.highSchoolLocation,
-      'highSchoolDuration': data.highSchoolDuration,
-      'achievements': data.achievements,
-      'strengths': data.strengths,
-      'customSections': customSections,
-      'sectionOrder': sectionOrder,
-      'sectionNames': {
-        'skills': skillsSectionName,
-        'experience': experienceSectionName,
-        'projects': projectsSectionName,
-        'education': educationSectionName,
-        'achievements': achievementsSectionName,
-        'strengths': strengthsSectionName,
-      },
-      'skillLabels': {
-        'languages': skillsLanguagesLabel,
-        'frameworks': skillsFrameworksLabel,
-        'tools': skillsToolsLabel,
-        'others': skillsOthersLabel,
-      },
-      'extraSkillRows': extraSkillRows,
-      'formatting': {
-        'nameTextSize': nameTextSize,
-        'sectionHeaderSize': sectionHeaderSize,
-        'bodyTextSize': bodyTextSize,
-        'nameTextColor': nameTextColor.value,
-        'sectionHeaderColor': sectionHeaderColor.value,
-        'bodyTextColor': bodyTextColor.value,
-        'contactLinkColor': contactLinkColor.value,
-      },
-    };
+    final resumeData = _buildResumeStateMap();
 
     // Convert to JSON and encode
     String jsonString = json.encode(resumeData);

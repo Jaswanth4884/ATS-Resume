@@ -87,8 +87,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     final error = result['error'];
     final mockOtp = result['mockOtp'];
+    final warning = result['warning'];
+    final deliveryMode = result['delivery'];
     if (error != null) {
       _showMessage(error, isError: true);
+      return;
+    }
+
+    if (deliveryMode == 'firebase') {
+      _showMessage(
+        warning ?? 'Password reset link sent to your email.',
+        isError: false,
+      );
+      Navigator.of(context).pop();
       return;
     }
 
@@ -246,7 +257,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 30,
                     offset: const Offset(0, 12),
                   ),
@@ -267,7 +278,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   const SizedBox(height: 8),
                   Text(
                     _step == 1
-                        ? 'Enter your registered email to receive OTP'
+                        ? 'Enter your registered email to receive reset instructions'
                         : _step == 2
                         ? 'Enter OTP sent to your email'
                         : 'Create a new password',
@@ -343,7 +354,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : const Text('Send OTP'),
+                  : const Text('Send Reset Instructions'),
             ),
           ),
         ],

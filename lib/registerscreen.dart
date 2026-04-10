@@ -124,6 +124,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       final otpResult = await AuthService.sendRegistrationOtp(email: email);
       final otpError = otpResult['error'];
       final mockOtp = otpResult['mockOtp'];
+      final otpDelivery = otpResult['delivery'];
 
       if (!mounted) {
         return;
@@ -146,7 +147,9 @@ class _RegisterScreenState extends State<RegisterScreen>
           content: Text(
             mockOtp != null
                 ? 'Registration successful! Demo OTP: $mockOtp'
-                : 'Registration successful! OTP sent to your email.',
+                : otpDelivery == 'firebase'
+                    ? 'Registration successful! Firebase verification mail sent to your email.'
+                    : 'Registration successful! OTP sent to your email.',
           ),
           backgroundColor: const Color(0xFF6B8E7F),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -220,8 +223,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
                   colors: [
-                    const Color(0xFF6B8E7F).withOpacity(0.3),
-                    const Color(0xFF6B8E7F).withOpacity(0.1),
+                    const Color(0xFF6B8E7F).withValues(alpha: 0.3),
+                    const Color(0xFF6B8E7F).withValues(alpha: 0.1),
                   ],
                 ),
               ),
@@ -237,8 +240,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                 borderRadius: BorderRadius.circular(20),
                 gradient: LinearGradient(
                   colors: [
-                    const Color(0xFF8B5CF6).withOpacity(0.4),
-                    const Color(0xFF8B5CF6).withOpacity(0.2),
+                    const Color(0xFF8B5CF6).withValues(alpha: 0.4),
+                    const Color(0xFF8B5CF6).withValues(alpha: 0.2),
                   ],
                 ),
               ),
@@ -254,8 +257,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
                   colors: [
-                    const Color(0xFF10B981).withOpacity(0.6),
-                    const Color(0xFF10B981).withOpacity(0.2),
+                    const Color(0xFF10B981).withValues(alpha: 0.6),
+                    const Color(0xFF10B981).withValues(alpha: 0.2),
                   ],
                 ),
               ),
@@ -284,10 +287,10 @@ class _RegisterScreenState extends State<RegisterScreen>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.white.withOpacity(0.1),
-                    Colors.white.withOpacity(0.05),
+                    Colors.white.withValues(alpha: 0.1),
+                    Colors.white.withValues(alpha: 0.05),
                     Colors.transparent,
-                    Colors.white.withOpacity(0.05),
+                    Colors.white.withValues(alpha: 0.05),
                   ],
                 ),
               ),
@@ -307,7 +310,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                       margin: const EdgeInsets.symmetric(horizontal: 24),
                       child: Card(
                         elevation: 20,
-                        shadowColor: Colors.black.withOpacity(0.1),
+                        shadowColor: Colors.black.withValues(alpha: 0.1),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
@@ -318,12 +321,12 @@ class _RegisterScreenState extends State<RegisterScreen>
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                Colors.white.withOpacity(0.9),
-                                Colors.white.withOpacity(0.8),
+                                Colors.white.withValues(alpha: 0.9),
+                                Colors.white.withValues(alpha: 0.8),
                               ],
                             ),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withValues(alpha: 0.3),
                               width: 1,
                             ),
                           ),
@@ -371,7 +374,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             borderRadius: BorderRadius.circular(18),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6B8E7F).withOpacity(0.3),
+                color: const Color(0xFF6B8E7F).withValues(alpha: 0.3),
                 blurRadius: 15,
                 offset: const Offset(0, 8),
               ),
@@ -397,7 +400,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           'Join us to build your professional resume',
           style: TextStyle(
             fontSize: 14,
-            color: const Color(0xFF4A5568).withOpacity(0.8),
+            color: const Color(0xFF4A5568).withValues(alpha: 0.8),
           ),
         ),
       ],
@@ -439,8 +442,9 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
             validator: (value) {
               if (value?.isEmpty ?? true) return 'Please enter your full name';
-              if (value!.trim().length < 2)
+              if (value!.trim().length < 2) {
                 return 'Name must be at least 2 characters';
+              }
               if (!RegExp(r'^[a-zA-Z\s]+$').hasMatch(value.trim())) {
                 return 'Name should only contain letters and spaces';
               }
@@ -479,8 +483,9 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
             ),
             validator: (value) {
-              if (value?.isEmpty ?? true)
+              if (value?.isEmpty ?? true) {
                 return 'Please enter your email address';
+              }
 
               // Email regex pattern for validation
               final emailRegex = RegExp(
@@ -538,8 +543,9 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
             validator: (value) {
               if (value?.isEmpty ?? true) return 'Please enter a password';
-              if (value!.length < 8)
+              if (value!.length < 8) {
                 return 'Password must be at least 8 characters';
+              }
 
               // Check for uppercase letter
               if (!RegExp(r'[A-Z]').hasMatch(value)) {
@@ -678,7 +684,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             borderRadius: BorderRadius.circular(12),
           ),
           elevation: 4,
-          shadowColor: const Color(0xFF6B8E7F).withOpacity(0.3),
+          shadowColor: const Color(0xFF6B8E7F).withValues(alpha: 0.3),
         ),
         child: _isLoading
             ? const SizedBox(
@@ -707,7 +713,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               gradient: LinearGradient(
                 colors: [
                   Colors.transparent,
-                  const Color(0xFFE2E8F0).withOpacity(0.8),
+                  const Color(0xFFE2E8F0).withValues(alpha: 0.8),
                 ],
               ),
             ),
@@ -719,7 +725,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             'OR',
             style: TextStyle(
               fontSize: 12,
-              color: const Color(0xFF4A5568).withOpacity(0.7),
+              color: const Color(0xFF4A5568).withValues(alpha: 0.7),
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -730,7 +736,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  const Color(0xFFE2E8F0).withOpacity(0.8),
+                  const Color(0xFFE2E8F0).withValues(alpha: 0.8),
                   Colors.transparent,
                 ],
               ),
@@ -824,7 +830,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           'Already have an account? ',
           style: TextStyle(
             fontSize: 14,
-            color: const Color(0xFF4A5568).withOpacity(0.8),
+            color: const Color(0xFF4A5568).withValues(alpha: 0.8),
           ),
         ),
         GestureDetector(
@@ -849,7 +855,7 @@ class GridPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.1)
+      ..color = Colors.white.withValues(alpha: 0.1)
       ..strokeWidth = 0.5;
 
     const double spacing = 30.0;
@@ -897,11 +903,11 @@ class ParticlePainter extends CustomPainter {
       final opacity = (1 - (i / particles.length)) * 0.3;
 
       // Main particle
-      paint.color = const Color(0xFF6B8E7F).withOpacity(opacity);
+      paint.color = const Color(0xFF6B8E7F).withValues(alpha: opacity);
       canvas.drawCircle(particle, 2 + (i % 3), paint);
 
       // Glow effect
-      paint.color = const Color(0xFF8B5CF6).withOpacity(opacity * 0.5);
+      paint.color = const Color(0xFF8B5CF6).withValues(alpha: opacity * 0.5);
       canvas.drawCircle(particle, 4 + (i % 3), paint);
     }
 
@@ -911,7 +917,7 @@ class ParticlePainter extends CustomPainter {
         final distance = (particles[i] - particles[j]).distance;
         if (distance < 100) {
           final opacity = (1 - distance / 100) * 0.1;
-          paint.color = const Color(0xFF6B8E7F).withOpacity(opacity);
+          paint.color = const Color(0xFF6B8E7F).withValues(alpha: opacity);
           paint.strokeWidth = 1;
           canvas.drawLine(particles[i], particles[j], paint);
         }

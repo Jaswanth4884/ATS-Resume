@@ -22,6 +22,30 @@ class _LoginScreenState extends State<LoginScreen>
   bool _rememberMe = false;
 
   @override
+  void initState() {
+    super.initState();
+    _restoreExistingSession();
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _restoreExistingSession() async {
+    final isValid = await AuthService.validateSession();
+    if (!mounted || !isValid) {
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => const ResumeHome()),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -38,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen>
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
+                      color: Colors.black.withValues(alpha: 0.06),
                       blurRadius: 30,
                       offset: const Offset(0, 12),
                     ),
@@ -103,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen>
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6B8E7F).withOpacity(0.3),
+                color: const Color(0xFF6B8E7F).withValues(alpha: 0.3),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -353,6 +377,7 @@ class _LoginScreenState extends State<LoginScreen>
     final result = await AuthService.login(
       email: email,
       password: password,
+      rememberSession: _rememberMe,
     );
     
     final token = result['token'];
@@ -385,7 +410,11 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  void _continueAsGuest() {
+  Future<void> _continueAsGuest() async {
+    await AuthService.startGuestSession();
+    if (!mounted) {
+      return;
+    }
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (context) => const ResumeHome()),
     );
@@ -412,7 +441,7 @@ class GridPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF6B8E7F).withOpacity(0.02)
+      ..color = const Color(0xFF6B8E7F).withValues(alpha: 0.02)
       ..strokeWidth = 1;
 
     const double spacing = 50.0;
@@ -460,11 +489,11 @@ class ParticlePainter extends CustomPainter {
       final opacity = (1 - (i / particles.length)) * 0.3;
 
       // Main particle
-      paint.color = const Color(0xFF6B8E7F).withOpacity(opacity);
+      paint.color = const Color(0xFF6B8E7F).withValues(alpha: opacity);
       canvas.drawCircle(particle, 2 + (i % 3), paint);
 
       // Glow effect
-      paint.color = const Color(0xFF8B5CF6).withOpacity(opacity * 0.5);
+      paint.color = const Color(0xFF8B5CF6).withValues(alpha: opacity * 0.5);
       canvas.drawCircle(particle, 4 + (i % 3), paint);
     }
 
@@ -474,7 +503,7 @@ class ParticlePainter extends CustomPainter {
         final distance = (particles[i] - particles[j]).distance;
         if (distance < 100) {
           final opacity = (1 - distance / 100) * 0.1;
-          paint.color = const Color(0xFF6B8E7F).withOpacity(opacity);
+          paint.color = const Color(0xFF6B8E7F).withValues(alpha: opacity);
           paint.strokeWidth = 1;
           canvas.drawLine(particles[i], particles[j], paint);
         }

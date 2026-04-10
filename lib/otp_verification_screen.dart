@@ -17,6 +17,8 @@ class OtpVerificationScreen extends StatefulWidget {
 class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _otpController = TextEditingController();
+  final bool _usesFirebaseEmailVerification =
+      AuthService.usesFirebaseEmailVerification;
   bool _isVerifying = false;
   bool _isResending = false;
   int _resendCooldownSeconds = 30;
@@ -62,7 +64,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   Future<void> _verifyOtp() async {
-    if (!_formKey.currentState!.validate()) {
+    if (!_usesFirebaseEmailVerification && !_formKey.currentState!.validate()) {
       return;
     }
 
@@ -72,7 +74,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
     final result = await AuthService.verifyRegistrationOtp(
       email: widget.email,
-      otp: _otpController.text.trim(),
+      otp: _usesFirebaseEmailVerification ? '000000' : _otpController.text.trim(),
     );
 
     if (!mounted) {
@@ -89,7 +91,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       return;
     }
 
-    _showMessage('Email verified successfully. Please login.', isError: false);
+    _showMessage(
+      _usesFirebaseEmailVerification
+          ? 'Email verified successfully from Firebase. Please login.'
+          : 'Email verified successfully. Please login.',
+      isError: false,
+    );
     Navigator.of(context).pop(true);
   }
 
@@ -113,12 +120,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     });
 
     final error = result['error'];
+    final warning = result['warning'];
+    final mockOtp = result['mockOtp'];
     if (error != null) {
       _showMessage(error, isError: true);
       return;
     }
 
-    _showMessage('OTP sent again to your email.', isError: false);
+    _showMessage(mockOtp != null
+        ? 'Demo OTP: $mockOtp'
+        : (warning ?? 'OTP sent again to your email.'), isError: false);
     _startResendCooldown();
   }
 
@@ -182,7 +193,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'An OTP has been sent to ${widget.email}',
+                      _usesFirebaseEmailVerification
+                          ? 'A Firebase verification email has been sent to ${widget.email}'
+                          : 'An OTP has been sent to ${widget.email}',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Color(0xFF718096),
@@ -190,41 +203,54 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    TextFormField(
-                      controller: _otpController,
-                      keyboardType: TextInputType.number,
-                      maxLength: 6,
-                      decoration: InputDecoration(
-                        hintText: 'Enter 6-digit OTP',
-                        prefixIcon: const Icon(
-                          Icons.password_outlined,
-                          color: Color(0xFF6B8E7F),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
+                    if (!_usesFirebaseEmailVerification)
+                      TextFormField(
+                        controller: _otpController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        decoration: InputDecoration(
+                          hintText: 'Enter 6-digit OTP',
+                          prefixIcon: const Icon(
+                            Icons.password_outlined,
                             color: Color(0xFF6B8E7F),
-                            width: 2,
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF6B8E7F),
+                              width: 2,
+                            ),
                           ),
                         ),
+                        validator: (value) {
+                          final otp = value?.trim() ?? '';
+                          if (otp.isEmpty) {
+                            return 'Please enter OTP';
+                          }
+                          if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
+                            return 'Enter valid 6-digit OTP';
+                          }
+                          return null;
+                        },
                       ),
-                      validator: (value) {
-                        final otp = value?.trim() ?? '';
-                        if (otp.isEmpty) {
-                          return 'Please enter OTP';
-                        }
-                        if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
-                          return 'Enter valid 6-digit OTP';
-                        }
-                        return null;
-                      },
-                    ),
+                    if (_usesFirebaseEmailVerification)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'Open your email and click the verification link, then tap Verify below.',
+                          style: TextStyle(color: Color(0xFF4A5568), fontSize: 13),
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 48,
@@ -248,7 +274,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                   ),
                                 ),
                               )
-                            : const Text('Verify OTP'),
+                            : Text(_usesFirebaseEmailVerification
+                                ? 'I Verified My Email'
+                                : 'Verify OTP'),
                       ),
                     ),
                     const SizedBox(height: 12),

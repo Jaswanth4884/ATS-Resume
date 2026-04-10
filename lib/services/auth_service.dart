@@ -1,21 +1,39 @@
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
+import '../firebase_options.dart';
 
 class AuthService {
   // ========== CONFIGURATION ==========
-  // Set to true to use mock authentication (for testing without backend)
-  // Set to false and update _baseUrl to use real backend
-  static const bool USE_MOCK_AUTH = true;
-  
-  // Replace with your actual backend API URL
-  static const String _baseUrl = 'https://api.example.com';
+  // Set true only when intentionally testing without backend.
+  static const bool USE_MOCK_AUTH = bool.fromEnvironment(
+    'USE_MOCK_AUTH',
+    defaultValue: true,
+  );
+
+  static const bool USE_FIREBASE_EMAIL_VERIFICATION = bool.fromEnvironment(
+    'USE_FIREBASE_EMAIL_VERIFICATION',
+    defaultValue: true,
+  );
+
+  // Override at runtime using --dart-define=API_BASE_URL=...
+  static const String _baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:3000',
+  );
 
   static const String _mockUsersStorageKey = 'auth_mock_users_v1';
   static const String _mockPendingOtpStorageKey = 'auth_mock_pending_otp_v1';
   static const String _mockPasswordResetOtpStorageKey =
       'auth_mock_password_reset_otp_v1';
+  static const String _authSessionTokenStorageKey = 'auth_session_token_v1';
+  static const String _authSessionExpiryStorageKey = 'auth_session_expiry_v1';
+  static const String _authSessionUserStorageKey = 'auth_session_user_v1';
+  static const String _authRememberMeStorageKey = 'auth_remember_me_v1';
+  static const String _guestSessionPrefix = 'guest_session_';
   
   // Mock users for development (remove in production)
   static final Map<String, Map<String, String>> _mockUsers = {
@@ -36,26 +54,125 @@ class AuthService {
   static final Map<String, String> _pendingPasswordResetOtps = {};
   static bool _passwordResetOtpsLoaded = false;
   static final Map<String, String> _passwordResetTokens = {};
+  static bool _firebaseInitAttempted = false;
+  static bool _firebaseReady = false;
 
   // Store token in memory (in production, use secure_storage)
   static String? _authToken;
   static DateTime? _tokenExpiry;
   static String? _currentUserIdentifier;
+  static bool _rememberSession = true;
+
+  static bool get usesFirebaseEmailVerification =>
+      USE_MOCK_AUTH && USE_FIREBASE_EMAIL_VERIFICATION;
+
+  static Future<bool> _ensureFirebaseReady() async {
+    if (_firebaseInitAttempted) {
+      return _firebaseReady;
+    }
+
+    _firebaseInitAttempted = true;
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        _firebaseReady = true;
+        return true;
+      }
+
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      _firebaseReady = true;
+      return true;
+    } catch (e) {
+      _firebaseReady = false;
+      debugPrint(
+        'Firebase not configured yet. Falling back to local mock auth flow.',
+      );
+      return false;
+    }
+  }
+
+  static Future<void> _persistSession() async {
+    final token = _authToken;
+    final expiry = _tokenExpiry;
+    if (token == null || expiry == null) {
+      await _clearPersistedSession();
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_authRememberMeStorageKey, _rememberSession);
+    await prefs.setString(_authSessionTokenStorageKey, token);
+    await prefs.setInt(
+      _authSessionExpiryStorageKey,
+      expiry.millisecondsSinceEpoch,
+    );
+
+    final userId = _currentUserIdentifier;
+    if (userId != null && userId.trim().isNotEmpty) {
+      await prefs.setString(_authSessionUserStorageKey, userId.trim().toLowerCase());
+    } else {
+      await prefs.remove(_authSessionUserStorageKey);
+    }
+  }
+
+  static Future<void> _clearPersistedSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_authSessionTokenStorageKey);
+    await prefs.remove(_authSessionExpiryStorageKey);
+    await prefs.remove(_authSessionUserStorageKey);
+    await prefs.remove(_authRememberMeStorageKey);
+  }
+
+  static Future<bool> _restoreSessionIfNeeded() async {
+    if (_authToken != null && _tokenExpiry != null) {
+      return true;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final rememberMe = prefs.getBool(_authRememberMeStorageKey) ?? true;
+    if (!rememberMe) {
+      await _clearPersistedSession();
+      return false;
+    }
+
+    final storedToken = prefs.getString(_authSessionTokenStorageKey);
+    final storedExpiryMillis = prefs.getInt(_authSessionExpiryStorageKey);
+    final storedUser = prefs.getString(_authSessionUserStorageKey);
+
+    if (storedToken == null || storedToken.isEmpty || storedExpiryMillis == null) {
+      return false;
+    }
+
+    final expiry = DateTime.fromMillisecondsSinceEpoch(storedExpiryMillis);
+    if (DateTime.now().isAfter(expiry)) {
+      await _clearPersistedSession();
+      return false;
+    }
+
+    _authToken = storedToken;
+    _tokenExpiry = expiry;
+    _currentUserIdentifier =
+        storedUser?.trim().toLowerCase();
+    return true;
+  }
 
   /// Login with email and password
   static Future<Map<String, String?>> login({
     required String email,
     required String password,
+    bool rememberSession = true,
   }) async {
     try {
       // Clear any existing token
       _authToken = null;
       _tokenExpiry = null;
       _currentUserIdentifier = null;
+      _rememberSession = rememberSession;
 
       // Use mock authentication for development
       if (USE_MOCK_AUTH) {
-        return _mockLogin(email, password);
+        return _mockLogin(email, password, rememberSession: rememberSession);
       }
 
       // Real backend authentication
@@ -84,6 +201,11 @@ class AuthService {
         _authToken = token;
         _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn));
         _currentUserIdentifier = email.trim().toLowerCase();
+        if (_rememberSession) {
+          await _persistSession();
+        } else {
+          await _clearPersistedSession();
+        }
 
         return {'token': token, 'error': null};
       } else if (response.statusCode == 401) {
@@ -106,8 +228,69 @@ class AuthService {
   static Future<Map<String, String?>> _mockLogin(
     String email,
     String password,
+    {
+    bool rememberSession = true,
+  }
   ) async {
     final normalizedEmail = email.trim().toLowerCase();
+
+    bool shouldFallbackToLocalMock = true;
+    bool usedFirebaseLogin = false;
+    String? firebaseAuthErrorCode;
+    if (usesFirebaseEmailVerification && await _ensureFirebaseReady()) {
+      usedFirebaseLogin = true;
+      try {
+        final credential = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: normalizedEmail, password: password);
+
+        final firebaseUser = credential.user;
+        if (firebaseUser == null) {
+          return {'token': null, 'error': 'Login failed. Please try again.'};
+        }
+
+        await firebaseUser.reload();
+        final refreshedUser = FirebaseAuth.instance.currentUser;
+        if (refreshedUser == null || !refreshedUser.emailVerified) {
+          await FirebaseAuth.instance.signOut();
+          return {
+            'token': null,
+            'error': 'Please verify your email from OTP mail before login.',
+          };
+        }
+        shouldFallbackToLocalMock = false;
+      } on FirebaseAuthException catch (e) {
+        firebaseAuthErrorCode = e.code;
+        if (e.code == 'user-not-found') {
+          shouldFallbackToLocalMock = true;
+        } else if (e.code == 'invalid-credential') {
+          // Some Firebase platforms return invalid-credential for unknown users.
+          shouldFallbackToLocalMock = true;
+        } else if (e.code == 'wrong-password') {
+          return {'token': null, 'error': 'Invalid email or password'};
+        } else {
+          return {'token': null, 'error': e.message ?? 'Login failed'};
+        }
+      } catch (e) {
+        return {'token': null, 'error': e.toString().replaceFirst('Exception: ', '')};
+      }
+
+      if (!shouldFallbackToLocalMock) {
+        // Firebase auth succeeded and user is verified, issue local session token.
+        final token =
+            'mock_token_${DateTime.now().millisecondsSinceEpoch}_${normalizedEmail.hashCode}';
+        _authToken = token;
+        _tokenExpiry = DateTime.now().add(const Duration(days: 7));
+        _currentUserIdentifier = normalizedEmail;
+        _rememberSession = rememberSession;
+        if (_rememberSession) {
+          await _persistSession();
+        } else {
+          await _clearPersistedSession();
+        }
+        return {'token': token, 'error': null};
+      }
+    }
+
     await _ensureMockUsersLoaded();
 
     // Simulate network delay
@@ -115,6 +298,13 @@ class AuthService {
 
     final user = _mockUsers[normalizedEmail];
     if (user == null) {
+      if (usedFirebaseLogin) {
+        // In Firebase mode, avoid misleading fallback errors.
+        if (firebaseAuthErrorCode == 'user-not-found') {
+          return {'token': null, 'error': 'User not found. Please sign up first.'};
+        }
+        return {'token': null, 'error': 'Invalid email or password'};
+      }
       return {'token': null, 'error': 'User not found. Please sign up first.'};
     }
 
@@ -134,8 +324,14 @@ class AuthService {
     final token =
       'mock_token_${DateTime.now().millisecondsSinceEpoch}_${normalizedEmail.hashCode}';
     _authToken = token;
-    _tokenExpiry = DateTime.now().add(const Duration(hours: 1));
+    _tokenExpiry = DateTime.now().add(const Duration(days: 7));
     _currentUserIdentifier = normalizedEmail;
+    _rememberSession = rememberSession;
+    if (_rememberSession) {
+      await _persistSession();
+    } else {
+      await _clearPersistedSession();
+    }
 
     return {'token': token, 'error': null};
   }
@@ -191,6 +387,54 @@ class AuthService {
     }
   }
 
+  static Future<Map<String, String?>> _storeMockSignupAccount({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+
+    await _ensureMockUsersLoaded();
+
+    if (_mockUsers.containsKey(normalizedEmail)) {
+      return {'token': null, 'error': 'Email already registered'};
+    }
+
+    if (password.length < 8) {
+      return {
+        'token': null,
+        'error': 'Password must be at least 8 characters long'
+      };
+    }
+
+    if (!password.contains(RegExp(r'[A-Z]'))) {
+      return {
+        'token': null,
+        'error': 'Password must contain at least one uppercase letter'
+      };
+    }
+
+    if (!password.contains(RegExp(r'[0-9]'))) {
+      return {
+        'token': null,
+        'error': 'Password must contain at least one number'
+      };
+    }
+
+    _mockUsers[normalizedEmail] = {
+      'password': password,
+      'name': name,
+      'isVerified': 'false',
+    };
+    await _persistMockUsers();
+
+    return {
+      'token': 'registered',
+      'error': null,
+      'delivery': 'mock',
+    };
+  }
+
   /// Mock signup for development/testing
   static Future<Map<String, String?>> _mockSignup(
     String name,
@@ -198,6 +442,62 @@ class AuthService {
     String password,
   ) async {
     final normalizedEmail = email.trim().toLowerCase();
+
+    if (usesFirebaseEmailVerification && await _ensureFirebaseReady()) {
+      try {
+        final credential = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(email: normalizedEmail, password: password);
+        await credential.user?.updateDisplayName(name);
+        await credential.user?.sendEmailVerification();
+
+        // Keep mock storage in sync so login fallback never loses this account.
+        await _ensureMockUsersLoaded();
+        _mockUsers[normalizedEmail] = {
+          'password': password,
+          'name': name,
+          'isVerified': 'false',
+        };
+        await _persistMockUsers();
+        return {
+          'token': 'registered',
+          'error': null,
+          'delivery': 'firebase',
+        };
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'email-already-in-use') {
+          return {'token': null, 'error': 'Email already registered'};
+        }
+        if (e.code == 'weak-password') {
+          return {'token': null, 'error': 'Password is too weak'};
+        }
+        if (e.code == 'too-many-requests' || e.code == 'quota-exceeded') {
+          debugPrint(
+            'Firebase signup blocked for $normalizedEmail, falling back to local mock signup.',
+          );
+          return _storeMockSignupAccount(
+            name: name,
+            email: email,
+            password: password,
+          );
+        }
+        return {'token': null, 'error': e.message ?? 'Signup failed'};
+      } catch (e) {
+        final message = e.toString().replaceFirst('Exception: ', '');
+        if (message.contains('too-many-requests') ||
+            message.contains('quota-exceeded')) {
+          debugPrint(
+            'Firebase signup blocked for $normalizedEmail, falling back to local mock signup.',
+          );
+          return _storeMockSignupAccount(
+            name: name,
+            email: email,
+            password: password,
+          );
+        }
+        return {'token': null, 'error': message};
+      }
+    }
+
     await _ensureMockUsersLoaded();
 
     // Simulate network delay
@@ -364,10 +664,27 @@ class AuthService {
   static Future<Map<String, String?>> sendRegistrationOtp({
     required String email,
   }) async {
+    final normalizedEmail = email.trim().toLowerCase();
     try {
-      final normalizedEmail = email.trim().toLowerCase();
-
       if (USE_MOCK_AUTH) {
+        if (usesFirebaseEmailVerification && await _ensureFirebaseReady()) {
+          final currentUser = FirebaseAuth.instance.currentUser;
+          if (currentUser == null ||
+              currentUser.email?.trim().toLowerCase() != normalizedEmail) {
+            return {
+              'success': null,
+              'error': 'Registration session expired. Please sign up again.',
+            };
+          }
+
+          await currentUser.sendEmailVerification();
+          return {
+            'success': 'true',
+            'error': null,
+            'warning': 'Verification email sent. Check inbox and spam folder.',
+          };
+        }
+
         await _ensureMockUsersLoaded();
         await _ensureMockOtpsLoaded();
 
@@ -393,14 +710,50 @@ class AuthService {
       );
 
       if (response.statusCode == 200) {
-        return {'success': 'true', 'error': null};
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final devOtp = data['devOtp'] as String?;
+        final warning = data['warning'] as String?;
+
+        return {
+          'success': 'true',
+          'error': null,
+          if (devOtp != null) 'mockOtp': devOtp,
+          if (warning != null) 'warning': warning,
+        };
       }
 
       final errorData = jsonDecode(response.body) as Map<String, dynamic>;
       final message = errorData['message'] as String? ?? 'Failed to send OTP';
       return {'success': null, 'error': message};
     } catch (e) {
-      return {'success': null, 'error': 'Network error: ${e.toString()}'};
+      final message = e.toString();
+      if (message.contains('too-many-requests') ||
+          message.contains('quota-exceeded')) {
+        await _ensureMockUsersLoaded();
+        await _ensureMockOtpsLoaded();
+
+        if (!_mockUsers.containsKey(normalizedEmail)) {
+          _mockUsers[normalizedEmail] = {
+            'password': 'Temp@1234',
+            'name': 'Recovered User',
+            'isVerified': 'false',
+          };
+          await _persistMockUsers();
+        }
+
+        final otp = _generateOtpCode();
+        _pendingMockOtps[normalizedEmail] = otp;
+        await _persistMockOtps();
+
+        return {
+          'success': 'true',
+          'error': null,
+          'delivery': 'mock',
+          'mockOtp': otp,
+          'warning': 'Firebase is rate-limited on this device. Using demo OTP fallback.',
+        };
+      }
+      return {'success': null, 'error': 'Network error: $message'};
     }
   }
 
@@ -412,6 +765,35 @@ class AuthService {
       final normalizedEmail = email.trim().toLowerCase();
 
       if (USE_MOCK_AUTH) {
+        if (usesFirebaseEmailVerification && await _ensureFirebaseReady()) {
+          final currentUser = FirebaseAuth.instance.currentUser;
+          if (currentUser == null ||
+              currentUser.email?.trim().toLowerCase() != normalizedEmail) {
+            return {
+              'success': null,
+              'error': 'Registration session expired. Please sign up again.',
+            };
+          }
+
+          await currentUser.reload();
+          final refreshedUser = FirebaseAuth.instance.currentUser;
+          if (refreshedUser == null || !refreshedUser.emailVerified) {
+            return {
+              'success': null,
+              'error': 'Email not verified yet. Click the verification link sent to your email.',
+            };
+          }
+
+          await _ensureMockUsersLoaded();
+          final user = _mockUsers[normalizedEmail];
+          if (user != null) {
+            user['isVerified'] = 'true';
+            await _persistMockUsers();
+          }
+
+          return {'success': 'true', 'error': null};
+        }
+
         await _ensureMockUsersLoaded();
         await _ensureMockOtpsLoaded();
 
@@ -467,13 +849,18 @@ class AuthService {
   static Future<bool> validateSession() async {
     try {
       if (_authToken == null || _tokenExpiry == null) {
-        return false;
+        final restored = await _restoreSessionIfNeeded();
+        if (!restored) {
+          return false;
+        }
       }
 
       // Check if token has expired
       if (DateTime.now().isAfter(_tokenExpiry!)) {
         _authToken = null;
         _tokenExpiry = null;
+        _currentUserIdentifier = null;
+        await _clearPersistedSession();
         return false;
       }
 
@@ -499,11 +886,15 @@ class AuthService {
       } else {
         _authToken = null;
         _tokenExpiry = null;
+        _currentUserIdentifier = null;
+        await _clearPersistedSession();
         return false;
       }
     } catch (e) {
       _authToken = null;
       _tokenExpiry = null;
+      _currentUserIdentifier = null;
+      await _clearPersistedSession();
       return false;
     }
   }
@@ -518,6 +909,7 @@ class AuthService {
     if (DateTime.now().isAfter(_tokenExpiry!)) {
       _authToken = null;
       _tokenExpiry = null;
+        _currentUserIdentifier = null;
       return false;
     }
 
@@ -534,6 +926,7 @@ class AuthService {
     if (DateTime.now().isAfter(_tokenExpiry!)) {
       _authToken = null;
       _tokenExpiry = null;
+      _currentUserIdentifier = null;
       return null;
     }
 
@@ -548,6 +941,16 @@ class AuthService {
   }
 
   static String? get currentUserIdentifier => _currentUserIdentifier;
+
+  /// Start a guest session for users who skip login/signup.
+  static Future<void> startGuestSession() async {
+    final guestToken =
+        '$_guestSessionPrefix${DateTime.now().millisecondsSinceEpoch}';
+    _authToken = guestToken;
+    _tokenExpiry = DateTime.now().add(const Duration(days: 7));
+    _currentUserIdentifier = 'guest';
+    await _persistSession();
+  }
 
   /// Logout and clear session
   static Future<void> logout() async {
@@ -569,6 +972,7 @@ class AuthService {
       _authToken = null;
       _tokenExpiry = null;
       _currentUserIdentifier = null;
+      await _clearPersistedSession();
     }
   }
 
@@ -601,17 +1005,20 @@ class AuthService {
 
         _authToken = token;
         _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn));
+        await _persistSession();
         return {'token': token, 'error': null};
       } else {
         _authToken = null;
         _tokenExpiry = null;
         _currentUserIdentifier = null;
+        await _clearPersistedSession();
         return {'token': null, 'error': 'Token refresh failed'};
       }
     } catch (e) {
       _authToken = null;
       _tokenExpiry = null;
       _currentUserIdentifier = null;
+      await _clearPersistedSession();
       return {'token': null, 'error': 'Network error: ${e.toString()}'};
     }
   }
@@ -671,6 +1078,31 @@ class AuthService {
       final normalizedEmail = email.trim().toLowerCase();
 
       if (USE_MOCK_AUTH) {
+        if (usesFirebaseEmailVerification && await _ensureFirebaseReady()) {
+          try {
+            await FirebaseAuth.instance.sendPasswordResetEmail(
+              email: normalizedEmail,
+            );
+            return {
+              'success': 'true',
+              'error': null,
+              'delivery': 'firebase',
+              'warning': 'Password reset link sent to your email.',
+            };
+          } on FirebaseAuthException catch (e) {
+            if (e.code == 'user-not-found') {
+              return {
+                'success': null,
+                'error': 'User not found. Please sign up first.',
+              };
+            }
+            return {
+              'success': null,
+              'error': e.message ?? 'Failed to send reset email',
+            };
+          }
+        }
+
         await _ensureMockUsersLoaded();
         await _ensurePasswordResetOtpsLoaded();
 
@@ -692,7 +1124,12 @@ class AuthService {
         await _persistPasswordResetOtps();
         debugPrint('Mock password reset OTP for $normalizedEmail: $otp');
 
-        return {'success': 'true', 'error': null, 'mockOtp': otp};
+        return {
+          'success': 'true',
+          'error': null,
+          'delivery': 'mock',
+          'mockOtp': otp,
+        };
       }
 
       final response = await http.post(
@@ -705,7 +1142,17 @@ class AuthService {
       );
 
       if (response.statusCode == 200) {
-        return {'success': 'true', 'error': null};
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final devOtp = data['devOtp'] as String?;
+        final warning = data['warning'] as String?;
+
+        return {
+          'success': 'true',
+          'error': null,
+          'delivery': 'backend',
+          if (devOtp != null) 'mockOtp': devOtp,
+          if (warning != null) 'warning': warning,
+        };
       }
 
       final errorData = jsonDecode(response.body) as Map<String, dynamic>;

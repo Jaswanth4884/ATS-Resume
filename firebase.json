@@ -1,0 +1,54 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "buildConfigurations": {
+          ".": {
+            "projectId": "ats-resume-98571",
+            "appId": "1:1065762162388:android:3f9b019060ea5079685d41",
+            "fileOutput": "android/app/google-services.json"
+          }
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "ats-resume-98571",
+          "configurations": {
+            "android": "1:1065762162388:android:3f9b019060ea5079685d41",
+            "ios": "1:1065762162388:ios:09099984f1fc76ea685d41",
+            "windows": "1:1065762162388:web:aca326a039e141ae685d41"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "database": "(default)",
+    "location": "nam5",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": "quotation-builder",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Quotation Builder",
+        "supportEmail": "njaswanth16@gmail.com"
+      }
+    }
+  }
+}

@@ -7,13 +7,28 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'resume_model.dart';
 import 'loginscreen.dart';
 import 'services/auth_service.dart';
+import 'widgets/grammar_aware_text_field.dart';
+import 'firebase_options.dart';
 
-void main() => runApp(const ProResumeApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (_) {
+    // Firebase is optional at compile time but required for auth verification features.
+  }
+
+  runApp(const ProResumeApp());
+}
 
 class ProResumeApp extends StatelessWidget {
   const ProResumeApp({super.key});
@@ -36,7 +51,28 @@ class ProResumeApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en')],
-      home: const LoginScreen(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: AuthService.validateSession(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final isValid = snapshot.data ?? false;
+        return isValid ? const ResumeHome() : const LoginScreen();
+      },
     );
   }
 }
@@ -50,9 +86,16 @@ class ResumeHome extends StatefulWidget {
 
 class _ResumeHomeState extends State<ResumeHome> {
   ResumeData data = ResumeData();
-  final Map<String, TextEditingController> _fieldControllers = {};
+  final Map<String, GrammarAwareTextEditingController> _fieldControllers = {};
+  final Map<String, GrammarAwareTextEditingController> _dialogFieldControllers =
+      {};
   static const String _resumeDraftKeyPrefix = 'resume_draft_v1_';
+  static const Duration _typingDebounceDuration = Duration(milliseconds: 420);
+  static const Duration _draftAutoSaveInterval = Duration(seconds: 15);
   Timer? _draftAutoSaveTimer;
+  Timer? _inputDebounceTimer;
+  bool _hasUnsavedDraftChanges = false;
+  int _mobileViewTabIndex = 0;
 
   // Section ordering
   List<String> sectionOrder = [
@@ -97,10 +140,10 @@ class _ResumeHomeState extends State<ResumeHome> {
   // Add section form state
   bool _showAddSectionForm = false;
   String? _sectionToAddFromOrder;
-  final TextEditingController _newSectionNameController =
-      TextEditingController();
-  final TextEditingController _newSectionContentController =
-      TextEditingController();
+  final GrammarAwareTextEditingController _newSectionNameController =
+      GrammarAwareTextEditingController();
+  final GrammarAwareTextEditingController _newSectionContentController =
+      GrammarAwareTextEditingController();
 
   // Collapsible state for all sections
   bool isPersonalExpanded = true;
@@ -120,28 +163,41 @@ class _ResumeHomeState extends State<ResumeHome> {
   void initState() {
     super.initState();
     _syncPhoneCountryFromPhone();
-    _validateSession();
-    _loadDraft();
-    _startDraftAutoSave();
+    _initializeResumeHome();
   }
 
-  Future<void> _validateSession() async {
+  Future<void> _initializeResumeHome() async {
     // Check if user has a valid session/token
     final isValid = await AuthService.validateSession();
-    
+
     if (!isValid && mounted) {
       // Session invalid or token expired, redirect to login
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
       );
+      return;
+    }
+
+    if (mounted) {
+      _startDraftAutoSave();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _loadDraft();
+      });
     }
   }
 
   @override
   void dispose() {
     _draftAutoSaveTimer?.cancel();
-    _saveDraft();
+    _inputDebounceTimer?.cancel();
+    _saveDraft(force: true);
     for (final controller in _fieldControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _dialogFieldControllers.values) {
       controller.dispose();
     }
     _newSectionNameController.dispose();
@@ -149,7 +205,10 @@ class _ResumeHomeState extends State<ResumeHome> {
     super.dispose();
   }
 
-  TextEditingController _getFieldController(String key, String value) {
+  GrammarAwareTextEditingController _getFieldController(
+    String key,
+    String value,
+  ) {
     final existing = _fieldControllers[key];
     if (existing != null) {
       if (existing.text.isEmpty && value.isNotEmpty) {
@@ -158,8 +217,25 @@ class _ResumeHomeState extends State<ResumeHome> {
       return existing;
     }
 
-    final controller = TextEditingController(text: value);
+    final controller = GrammarAwareTextEditingController()..text = value;
     _fieldControllers[key] = controller;
+    return controller;
+  }
+
+  GrammarAwareTextEditingController _getDialogFieldController(
+    String key,
+    String value,
+  ) {
+    final existing = _dialogFieldControllers[key];
+    if (existing != null) {
+      if (existing.text.isEmpty && value.isNotEmpty) {
+        existing.text = value;
+      }
+      return existing;
+    }
+
+    final controller = GrammarAwareTextEditingController()..text = value;
+    _dialogFieldControllers[key] = controller;
     return controller;
   }
 
@@ -185,6 +261,7 @@ class _ResumeHomeState extends State<ResumeHome> {
   void _addExtraSkillRow() {
     setState(() {
       extraSkillRows.add({'heading': '', 'skills': ''});
+      _hasUnsavedDraftChanges = true;
     });
   }
 
@@ -192,6 +269,24 @@ class _ResumeHomeState extends State<ResumeHome> {
     setState(() {
       extraSkillRows.removeAt(index);
       _clearFieldControllersByPrefix('skills.extra.');
+      _hasUnsavedDraftChanges = true;
+    });
+  }
+
+  void _markDraftDirty() {
+    _hasUnsavedDraftChanges = true;
+  }
+
+  void _runDebouncedInputUpdate(VoidCallback update) {
+    _markDraftDirty();
+    update();
+    _inputDebounceTimer?.cancel();
+    _inputDebounceTimer = Timer(_typingDebounceDuration, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+      _saveDraft(force: true);
     });
   }
 
@@ -225,11 +320,11 @@ class _ResumeHomeState extends State<ResumeHome> {
   }
 
   Future<void> _handleLogout() async {
-    await _saveDraft();
+    await _saveDraft(force: true);
 
     // Clear session and logout
     await AuthService.logout();
-    
+
     if (mounted) {
       // Redirect to login
       Navigator.of(context).pushReplacement(
@@ -249,16 +344,21 @@ class _ResumeHomeState extends State<ResumeHome> {
 
   void _startDraftAutoSave() {
     _draftAutoSaveTimer?.cancel();
-    _draftAutoSaveTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _draftAutoSaveTimer = Timer.periodic(_draftAutoSaveInterval, (_) {
       _saveDraft();
     });
   }
 
-  Future<void> _saveDraft() async {
+  Future<void> _saveDraft({bool force = false}) async {
+    if (!force && !_hasUnsavedDraftChanges) {
+      return;
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final draftMap = _buildResumeStateMap();
       await prefs.setString(_resumeDraftStorageKey(), jsonEncode(draftMap));
+      _hasUnsavedDraftChanges = false;
     } catch (_) {
       // Ignore storage failures; app can still continue editing.
     }
@@ -285,6 +385,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         _applyResumeStateMap(decoded);
       });
       _clearFieldControllersByPrefix('');
+      _hasUnsavedDraftChanges = false;
     } catch (_) {
       // Ignore invalid drafts and continue with defaults.
     }
@@ -360,10 +461,10 @@ class _ResumeHomeState extends State<ResumeHome> {
         'nameTextSize': nameTextSize,
         'sectionHeaderSize': sectionHeaderSize,
         'bodyTextSize': bodyTextSize,
-        'nameTextColor': nameTextColor.value,
-        'sectionHeaderColor': sectionHeaderColor.value,
-        'bodyTextColor': bodyTextColor.value,
-        'contactLinkColor': contactLinkColor.value,
+        'nameTextColor': nameTextColor.toARGB32(),
+        'sectionHeaderColor': sectionHeaderColor.toARGB32(),
+        'bodyTextColor': bodyTextColor.toARGB32(),
+        'contactLinkColor': contactLinkColor.toARGB32(),
       },
     };
   }
@@ -392,20 +493,28 @@ class _ResumeHomeState extends State<ResumeHome> {
 
     data.university = stringValue('university', data.university);
     data.universityGPA = stringValue('universityGPA', data.universityGPA);
-    data.universityLocation =
-      stringValue('universityLocation', data.universityLocation);
-    data.universityDuration =
-      stringValue('universityDuration', data.universityDuration);
+    data.universityLocation = stringValue(
+      'universityLocation',
+      data.universityLocation,
+    );
+    data.universityDuration = stringValue(
+      'universityDuration',
+      data.universityDuration,
+    );
     data.college = stringValue('college', data.college);
     data.collegeGPA = stringValue('collegeGPA', data.collegeGPA);
     data.collegeLocation = stringValue('collegeLocation', data.collegeLocation);
     data.collegeDuration = stringValue('collegeDuration', data.collegeDuration);
     data.highSchool = stringValue('highSchool', data.highSchool);
     data.highSchoolGPA = stringValue('highSchoolGPA', data.highSchoolGPA);
-    data.highSchoolLocation =
-      stringValue('highSchoolLocation', data.highSchoolLocation);
-    data.highSchoolDuration =
-      stringValue('highSchoolDuration', data.highSchoolDuration);
+    data.highSchoolLocation = stringValue(
+      'highSchoolLocation',
+      data.highSchoolLocation,
+    );
+    data.highSchoolDuration = stringValue(
+      'highSchoolDuration',
+      data.highSchoolDuration,
+    );
 
     final phoneCountry = resumeData['phoneCountry'];
     if (phoneCountry is Map<String, dynamic>) {
@@ -473,7 +582,8 @@ class _ResumeHomeState extends State<ResumeHome> {
 
     final sectionNames = resumeData['sectionNames'];
     if (sectionNames is Map<String, dynamic>) {
-      skillsSectionName = sectionNames['skills'] as String? ?? skillsSectionName;
+      skillsSectionName =
+          sectionNames['skills'] as String? ?? skillsSectionName;
       experienceSectionName =
           sectionNames['experience'] as String? ?? experienceSectionName;
       projectsSectionName =
@@ -511,18 +621,26 @@ class _ResumeHomeState extends State<ResumeHome> {
 
     final formatting = resumeData['formatting'];
     if (formatting is Map<String, dynamic>) {
-      nameTextSize = (formatting['nameTextSize'] as num?)?.toDouble() ?? nameTextSize;
+      nameTextSize =
+          (formatting['nameTextSize'] as num?)?.toDouble() ?? nameTextSize;
       sectionHeaderSize =
-          (formatting['sectionHeaderSize'] as num?)?.toDouble() ?? sectionHeaderSize;
-      bodyTextSize = (formatting['bodyTextSize'] as num?)?.toDouble() ?? bodyTextSize;
-      nameTextColor = Color((formatting['nameTextColor'] as int?) ?? nameTextColor.value);
-      sectionHeaderColor = Color(
-        (formatting['sectionHeaderColor'] as int?) ?? sectionHeaderColor.value,
+          (formatting['sectionHeaderSize'] as num?)?.toDouble() ??
+          sectionHeaderSize;
+      bodyTextSize =
+          (formatting['bodyTextSize'] as num?)?.toDouble() ?? bodyTextSize;
+      nameTextColor = Color(
+        (formatting['nameTextColor'] as int?) ?? nameTextColor.toARGB32(),
       );
-      bodyTextColor =
-          Color((formatting['bodyTextColor'] as int?) ?? bodyTextColor.value);
-      contactLinkColor =
-          Color((formatting['contactLinkColor'] as int?) ?? contactLinkColor.value);
+      sectionHeaderColor = Color(
+        (formatting['sectionHeaderColor'] as int?) ??
+            sectionHeaderColor.toARGB32(),
+      );
+      bodyTextColor = Color(
+        (formatting['bodyTextColor'] as int?) ?? bodyTextColor.toARGB32(),
+      );
+      contactLinkColor = Color(
+        (formatting['contactLinkColor'] as int?) ?? contactLinkColor.toARGB32(),
+      );
     }
 
     _syncPhoneCountryFromPhone();
@@ -565,10 +683,7 @@ class _ResumeHomeState extends State<ResumeHome> {
             ],
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Icon(
-                Icons.more_vert,
-                color: Colors.white,
-              ),
+              child: Icon(Icons.more_vert, color: Colors.white),
             ),
           ),
         ],
@@ -586,51 +701,80 @@ class _ResumeHomeState extends State<ResumeHome> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isMobile = constraints.maxWidth < 900;
-          
+
           if (isMobile) {
-            // Mobile: Stack vertically with tabs
-            return DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  // Tab bar
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border(
-                        bottom: BorderSide(
-                          color: const Color(0xFFE2E8F0),
-                          width: 1,
+            // Mobile: render only active pane for smoother scrolling
+            return Column(
+              children: [
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (_mobileViewTabIndex == 0) return;
+                            setState(() {
+                              _mobileViewTabIndex = 0;
+                            });
+                          },
+                          icon: const Icon(Icons.edit_note_outlined, size: 18),
+                          label: const Text('Edit'),
+                          style: ElevatedButton.styleFrom(
+                            elevation: _mobileViewTabIndex == 0 ? 1 : 0,
+                            backgroundColor: _mobileViewTabIndex == 0
+                                ? const Color(0xFF6B8E7F)
+                                : const Color(0xFFF1F5F9),
+                            foregroundColor: _mobileViewTabIndex == 0
+                                ? Colors.white
+                                : const Color(0xFF334155),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    child: TabBar(
-                      unselectedLabelColor: const Color(0xFF718096),
-                      labelColor: const Color(0xFF6B8E7F),
-                      indicatorColor: const Color(0xFF6B8E7F),
-                      tabs: const [
-                        Tab(
-                          icon: Icon(Icons.edit_note_outlined, size: 20),
-                          text: "Edit",
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (_mobileViewTabIndex == 1) return;
+                            setState(() {
+                              _mobileViewTabIndex = 1;
+                            });
+                          },
+                          icon: const Icon(Icons.preview_outlined, size: 18),
+                          label: const Text('Preview'),
+                          style: ElevatedButton.styleFrom(
+                            elevation: _mobileViewTabIndex == 1 ? 1 : 0,
+                            backgroundColor: _mobileViewTabIndex == 1
+                                ? const Color(0xFF6B8E7F)
+                                : const Color(0xFFF1F5F9),
+                            foregroundColor: _mobileViewTabIndex == 1
+                                ? Colors.white
+                                : const Color(0xFF334155),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                         ),
-                        Tab(
-                          icon: Icon(Icons.preview_outlined, size: 20),
-                          text: "Preview",
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  // Tab content
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildFormSection(),
-                        _buildPreviewSection(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                Expanded(
+                  child: _mobileViewTabIndex == 0
+                      ? _buildFormSection()
+                      : RepaintBoundary(child: _buildPreviewSection()),
+                ),
+              ],
             );
           } else {
             // Desktop: Side-by-side layout
@@ -643,7 +787,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                 Container(width: 1, color: const Color(0xFFE2E8F0)),
 
                 // RIGHT — PREVIEW SECTION (50%)
-                Expanded(flex: 1, child: _buildPreviewSection()),
+                Expanded(
+                  flex: 1,
+                  child: RepaintBoundary(child: _buildPreviewSection()),
+                ),
               ],
             );
           }
@@ -754,7 +901,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -771,7 +918,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -796,7 +943,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                 _modernTextField(
                   "Full Name",
                   Icons.person,
-                  (v) => setState(() => data.name = v),
+                  (v) => data.name = v,
                   fieldKey: 'personal.name',
                   initialValue: data.name,
                 ),
@@ -804,35 +951,35 @@ class _ResumeHomeState extends State<ResumeHome> {
                 _modernTextField(
                   "Email",
                   Icons.email,
-                  (v) => setState(() => data.email = v),
+                  (v) => data.email = v,
                   fieldKey: 'personal.email',
                   initialValue: data.email,
                 ),
                 _modernTextField(
                   "LinkedIn URL",
                   Icons.link,
-                  (v) => setState(() => data.linkedin = v),
+                  (v) => data.linkedin = v,
                   fieldKey: 'personal.linkedin',
                   initialValue: data.linkedin,
                 ),
                 _modernTextField(
                   "LinkedIn Display Name",
                   Icons.business,
-                  (v) => setState(() => data.linkedinName = v),
+                  (v) => data.linkedinName = v,
                   fieldKey: 'personal.linkedinName',
                   initialValue: data.linkedinName,
                 ),
                 _modernTextField(
                   "GitHub URL",
                   Icons.code,
-                  (v) => setState(() => data.github = v),
+                  (v) => data.github = v,
                   fieldKey: 'personal.github',
                   initialValue: data.github,
                 ),
                 _modernTextField(
                   "GitHub Display Name",
                   Icons.code_outlined,
-                  (v) => setState(() => data.githubName = v),
+                  (v) => data.githubName = v,
                   fieldKey: 'personal.githubName',
                   initialValue: data.githubName,
                 ),
@@ -890,13 +1037,20 @@ class _ResumeHomeState extends State<ResumeHome> {
     bool compact = false,
   }) {
     final controller = _getFieldController(fieldKey, initialValue);
-    return TextField(
+    return GrammarAwareTextField(
       controller: controller,
-      onChanged: onChanged,
+      onChanged: (value) => _runDebouncedInputUpdate(() => onChanged(value)),
+      grammarCheckEnabled: true,
       style: const TextStyle(
         color: Color(0xFF2D3748),
         fontSize: 14,
         height: 1.4,
+      ),
+      maxLines: 1,
+      keyboardType: TextInputType.text,
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: compact ? 12 : 14,
       ),
       decoration: InputDecoration(
         hintText: hintText,
@@ -904,10 +1058,6 @@ class _ResumeHomeState extends State<ResumeHome> {
           color: Color(0xFF718096),
           fontSize: 13,
           fontWeight: FontWeight.w500,
-        ),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: compact ? 12 : 14,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -935,48 +1085,41 @@ class _ResumeHomeState extends State<ResumeHome> {
     VoidCallback? onRemove,
     bool compact = false,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _buildSkillInputField(
-                fieldKey: headingFieldKey,
-                initialValue: headingValue,
-                hintText: headingHint,
-                onChanged: onHeadingChanged,
-                compact: compact,
-              ),
-            ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _buildSkillInputField(
+            fieldKey: headingFieldKey,
+            initialValue: headingValue,
+            hintText: headingHint,
+            onChanged: onHeadingChanged,
+            compact: compact,
           ),
-          Expanded(
-            flex: 2,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: _buildSkillInputField(
-                fieldKey: skillsFieldKey,
-                initialValue: skillsValue,
-                hintText: skillsHint,
-                onChanged: onSkillsChanged,
-                compact: compact,
-              ),
-            ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 2,
+          child: _buildSkillInputField(
+            fieldKey: skillsFieldKey,
+            initialValue: skillsValue,
+            hintText: skillsHint,
+            onChanged: onSkillsChanged,
+            compact: compact,
           ),
-          SizedBox(
-            width: 40,
-            child: onRemove == null
-                ? const SizedBox()
-                : IconButton(
-                    onPressed: onRemove,
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    tooltip: 'Remove skill row',
-                  ),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 40,
+          child: onRemove == null
+              ? const SizedBox()
+              : IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'Remove skill row',
+                ),
+        ),
+      ],
     );
   }
 
@@ -1009,6 +1152,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                     onChanged: (country) {
                       setState(() {
                         _setPhoneCountry(country);
+                        _hasUnsavedDraftChanges = true;
                       });
                     },
                     onInit: (country) {
@@ -1050,14 +1194,21 @@ class _ResumeHomeState extends State<ResumeHome> {
             flex: 5,
             child: SizedBox(
               height: 56,
-              child: TextField(
+              child: GrammarAwareTextField(
                 controller: phoneController,
-                onChanged: (value) => setState(() => data.phone = value),
+                onChanged: (value) =>
+                    _runDebouncedInputUpdate(() => data.phone = value),
+                grammarCheckEnabled: false,
                 keyboardType: TextInputType.phone,
                 style: const TextStyle(
                   fontSize: 14,
                   color: Color(0xFF2D3748),
                   fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
                 ),
                 decoration: InputDecoration(
                   labelText: 'Phone Number',
@@ -1070,10 +1221,6 @@ class _ResumeHomeState extends State<ResumeHome> {
                     color: Color(0xFF718096),
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -1110,7 +1257,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -1127,7 +1274,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -1157,9 +1304,8 @@ class _ResumeHomeState extends State<ResumeHome> {
                   skillsFieldKey: 'skills.languages.items',
                   skillsValue: data.languages,
                   skillsHint: 'Add languages',
-                  onHeadingChanged: (v) =>
-                      setState(() => skillsLanguagesLabel = v),
-                  onSkillsChanged: (v) => setState(() => data.languages = v),
+                  onHeadingChanged: (v) => skillsLanguagesLabel = v,
+                  onSkillsChanged: (v) => data.languages = v,
                 ),
                 _buildSkillEditorRow(
                   headingFieldKey: 'skills.frameworks.heading',
@@ -1168,9 +1314,8 @@ class _ResumeHomeState extends State<ResumeHome> {
                   skillsFieldKey: 'skills.frameworks.items',
                   skillsValue: data.frameworks,
                   skillsHint: 'Add frameworks and databases',
-                  onHeadingChanged: (v) =>
-                      setState(() => skillsFrameworksLabel = v),
-                  onSkillsChanged: (v) => setState(() => data.frameworks = v),
+                  onHeadingChanged: (v) => skillsFrameworksLabel = v,
+                  onSkillsChanged: (v) => data.frameworks = v,
                 ),
                 _buildSkillEditorRow(
                   headingFieldKey: 'skills.tools.heading',
@@ -1179,8 +1324,8 @@ class _ResumeHomeState extends State<ResumeHome> {
                   skillsFieldKey: 'skills.tools.items',
                   skillsValue: data.tools,
                   skillsHint: 'Add tools and technologies',
-                  onHeadingChanged: (v) => setState(() => skillsToolsLabel = v),
-                  onSkillsChanged: (v) => setState(() => data.tools = v),
+                  onHeadingChanged: (v) => skillsToolsLabel = v,
+                  onSkillsChanged: (v) => data.tools = v,
                 ),
                 _buildSkillEditorRow(
                   headingFieldKey: 'skills.others.heading',
@@ -1189,9 +1334,8 @@ class _ResumeHomeState extends State<ResumeHome> {
                   skillsFieldKey: 'skills.others.items',
                   skillsValue: data.others,
                   skillsHint: 'Add other skills',
-                  onHeadingChanged: (v) =>
-                      setState(() => skillsOthersLabel = v),
-                  onSkillsChanged: (v) => setState(() => data.others = v),
+                  onHeadingChanged: (v) => skillsOthersLabel = v,
+                  onSkillsChanged: (v) => data.others = v,
                 ),
                 ...extraSkillRows.asMap().entries.map((entry) {
                   final index = entry.key;
@@ -1204,9 +1348,8 @@ class _ResumeHomeState extends State<ResumeHome> {
                     skillsValue: row['skills'] ?? '',
                     skillsHint: 'Add skills for this sub heading',
                     onHeadingChanged: (v) =>
-                        setState(() => extraSkillRows[index]['heading'] = v),
-                    onSkillsChanged: (v) =>
-                        setState(() => extraSkillRows[index]['skills'] = v),
+                        extraSkillRows[index]['heading'] = v,
+                    onSkillsChanged: (v) => extraSkillRows[index]['skills'] = v,
                     onRemove: () => _removeExtraSkillRow(index),
                   );
                 }),
@@ -1234,14 +1377,20 @@ class _ResumeHomeState extends State<ResumeHome> {
     final controller = _getFieldController(fieldKey, initialValue);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      child: TextField(
+      child: GrammarAwareTextField(
         controller: controller,
+        onChanged: (value) => _runDebouncedInputUpdate(() => onChanged(value)),
+        grammarCheckEnabled: true,
         maxLines: lines,
-        onChanged: onChanged,
+        keyboardType: lines > 1 ? TextInputType.multiline : TextInputType.text,
         style: const TextStyle(
           fontSize: 14,
           color: Color(0xFF2D3748),
           fontWeight: FontWeight.w500,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
         ),
         decoration: InputDecoration(
           labelText: label,
@@ -1453,7 +1602,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -1470,7 +1619,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -1533,28 +1682,28 @@ class _ResumeHomeState extends State<ResumeHome> {
                         _modernTextField(
                           "Company Name",
                           Icons.business,
-                          (v) => setState(() => experience.companyName = v),
+                          (v) => experience.companyName = v,
                           fieldKey: 'experience.$index.companyName',
                           initialValue: experience.companyName,
                         ),
                         _modernTextField(
                           "Job Title",
                           Icons.work,
-                          (v) => setState(() => experience.jobTitle = v),
+                          (v) => experience.jobTitle = v,
                           fieldKey: 'experience.$index.jobTitle',
                           initialValue: experience.jobTitle,
                         ),
                         _modernTextField(
                           "Location",
                           Icons.location_on,
-                          (v) => setState(() => experience.location = v),
+                          (v) => experience.location = v,
                           fieldKey: 'experience.$index.location',
                           initialValue: experience.location,
                         ),
                         _modernDurationField(
                           "Duration",
                           Icons.schedule,
-                          (v) => setState(() => experience.duration = v),
+                          (v) => experience.duration = v,
                           fieldKey: 'experience.$index.duration',
                           initialValue: experience.duration,
                           allowPresent: true,
@@ -1562,7 +1711,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         _modernTextField(
                           "Description",
                           Icons.description,
-                          (v) => setState(() => experience.description = v),
+                          (v) => experience.description = v,
                           lines: 3,
                           fieldKey: 'experience.$index.description',
                           initialValue: experience.description,
@@ -1570,7 +1719,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
                 _modernAddButton(
                   "Add Experience",
                   Icons.add_business,
@@ -1592,7 +1741,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -1609,7 +1758,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -1672,14 +1821,14 @@ class _ResumeHomeState extends State<ResumeHome> {
                         _modernTextField(
                           "Project Title",
                           Icons.title,
-                          (v) => setState(() => project.title = v),
+                          (v) => project.title = v,
                           fieldKey: 'project.$index.title',
                           initialValue: project.title,
                         ),
                         _modernTextField(
                           "Project Description",
                           Icons.description,
-                          (v) => setState(() => project.description = v),
+                          (v) => project.description = v,
                           lines: 3,
                           fieldKey: 'project.$index.description',
                           initialValue: project.description,
@@ -1687,7 +1836,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
                 _modernAddButton("Add Project", Icons.add_box, _addProject),
               ],
             ),
@@ -1705,7 +1854,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -1722,7 +1871,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -1768,28 +1917,28 @@ class _ResumeHomeState extends State<ResumeHome> {
                       _modernTextField(
                         "University Name",
                         Icons.account_balance,
-                        (v) => setState(() => data.university = v),
+                        (v) => data.university = v,
                         fieldKey: 'education.university.name',
                         initialValue: data.university,
                       ),
                       _modernTextField(
                         "University GPA",
                         Icons.grade,
-                        (v) => setState(() => data.universityGPA = v),
+                        (v) => data.universityGPA = v,
                         fieldKey: 'education.university.gpa',
                         initialValue: data.universityGPA,
                       ),
                       _modernTextField(
                         "University Location",
                         Icons.location_on,
-                        (v) => setState(() => data.universityLocation = v),
+                        (v) => data.universityLocation = v,
                         fieldKey: 'education.university.location',
                         initialValue: data.universityLocation,
                       ),
                       _modernDurationField(
                         "University Duration",
                         Icons.schedule,
-                        (v) => setState(() => data.universityDuration = v),
+                        (v) => data.universityDuration = v,
                         fieldKey: 'education.university.duration',
                         initialValue: data.universityDuration,
                       ),
@@ -1820,28 +1969,28 @@ class _ResumeHomeState extends State<ResumeHome> {
                       _modernTextField(
                         "College Name",
                         Icons.school,
-                        (v) => setState(() => data.college = v),
+                        (v) => data.college = v,
                         fieldKey: 'education.college.name',
                         initialValue: data.college,
                       ),
                       _modernTextField(
                         "College GPA",
                         Icons.grade,
-                        (v) => setState(() => data.collegeGPA = v),
+                        (v) => data.collegeGPA = v,
                         fieldKey: 'education.college.gpa',
                         initialValue: data.collegeGPA,
                       ),
                       _modernTextField(
                         "College Location",
                         Icons.location_on,
-                        (v) => setState(() => data.collegeLocation = v),
+                        (v) => data.collegeLocation = v,
                         fieldKey: 'education.college.location',
                         initialValue: data.collegeLocation,
                       ),
                       _modernDurationField(
                         "College Duration",
                         Icons.schedule,
-                        (v) => setState(() => data.collegeDuration = v),
+                        (v) => data.collegeDuration = v,
                         fieldKey: 'education.college.duration',
                         initialValue: data.collegeDuration,
                       ),
@@ -1872,28 +2021,28 @@ class _ResumeHomeState extends State<ResumeHome> {
                       _modernTextField(
                         "High School Name",
                         Icons.school,
-                        (v) => setState(() => data.highSchool = v),
+                        (v) => data.highSchool = v,
                         fieldKey: 'education.highSchool.name',
                         initialValue: data.highSchool,
                       ),
                       _modernTextField(
                         "High School GPA",
                         Icons.grade,
-                        (v) => setState(() => data.highSchoolGPA = v),
+                        (v) => data.highSchoolGPA = v,
                         fieldKey: 'education.highSchool.gpa',
                         initialValue: data.highSchoolGPA,
                       ),
                       _modernTextField(
                         "High School Location",
                         Icons.location_on,
-                        (v) => setState(() => data.highSchoolLocation = v),
+                        (v) => data.highSchoolLocation = v,
                         fieldKey: 'education.highSchool.location',
                         initialValue: data.highSchoolLocation,
                       ),
                       _modernDurationField(
                         "High School Duration",
                         Icons.schedule,
-                        (v) => setState(() => data.highSchoolDuration = v),
+                        (v) => data.highSchoolDuration = v,
                         fieldKey: 'education.highSchool.duration',
                         initialValue: data.highSchoolDuration,
                       ),
@@ -1916,7 +2065,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -1933,7 +2082,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -1965,7 +2114,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                           child: _modernTextField(
                             "Achievement ${index + 1}",
                             Icons.star_outline,
-                            (v) => setState(() => data.achievements[index] = v),
+                            (v) => data.achievements[index] = v,
                             fieldKey: 'achievement.$index',
                             initialValue: data.achievements[index],
                           ),
@@ -1983,7 +2132,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
                 _modernAddButton(
                   "Add Achievement",
                   Icons.add_circle_outline,
@@ -2005,7 +2154,7 @@ class _ResumeHomeState extends State<ResumeHome> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -2022,7 +2171,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF6B8E7F).withOpacity(0.1),
+            color: const Color(0xFF6B8E7F).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
@@ -2054,7 +2203,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                           child: _modernTextField(
                             "Strength ${index + 1}",
                             Icons.psychology,
-                            (v) => setState(() => data.strengths[index] = v),
+                            (v) => data.strengths[index] = v,
                             fieldKey: 'strength.$index',
                             initialValue: data.strengths[index],
                           ),
@@ -2072,7 +2221,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
                 _modernAddButton(
                   "Add Strength",
                   Icons.add_circle_outline,
@@ -2102,7 +2251,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           side: const BorderSide(color: Color(0xFF6B8E7F), width: 1.5),
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          backgroundColor: const Color(0xFF6B8E7F).withOpacity(0.05),
+          backgroundColor: const Color(0xFF6B8E7F).withValues(alpha: 0.05),
         ),
       ),
     );
@@ -2158,7 +2307,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       elevation: 2,
-                      shadowColor: Colors.black.withOpacity(0.2),
+                      shadowColor: Colors.black.withValues(alpha: 0.2),
                     ),
                   ),
                 ),
@@ -2181,7 +2330,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     elevation: 2,
-                    shadowColor: Colors.black.withOpacity(0.2),
+                    shadowColor: Colors.black.withValues(alpha: 0.2),
                   ),
                 ),
               ],
@@ -2202,13 +2351,13 @@ class _ResumeHomeState extends State<ResumeHome> {
                       borderRadius: BorderRadius.circular(8),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.15),
+                          color: Colors.black.withValues(alpha: 0.15),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                           spreadRadius: 0,
                         ),
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
+                          color: Colors.black.withValues(alpha: 0.1),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                           spreadRadius: 0,
@@ -2228,8 +2377,12 @@ class _ResumeHomeState extends State<ResumeHome> {
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
-                                  const Color(0xFF6B8E7F).withOpacity(0.1),
-                                  const Color(0xFF557A6E).withOpacity(0.05),
+                                  const Color(
+                                    0xFF6B8E7F,
+                                  ).withValues(alpha: 0.1),
+                                  const Color(
+                                    0xFF557A6E,
+                                  ).withValues(alpha: 0.05),
                                 ],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
@@ -2331,7 +2484,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                                         }
                                         return const SizedBox();
                                     }
-                                  }).toList(),
+                                  }),
                                 ],
                               ),
                             ),
@@ -2412,34 +2565,39 @@ class _ResumeHomeState extends State<ResumeHome> {
     List<String> recommendations = [];
 
     // Basic Contact Information (25 points)
-    if (data.name.isNotEmpty && data.name != "YOUR NAME")
+    if (data.name.isNotEmpty && data.name != "YOUR NAME") {
       score += 5;
-    else
+    } else {
       recommendations.add("Add your full name");
+    }
 
     if (data.email.isNotEmpty &&
         data.email.contains('@') &&
-        !data.email.contains("youremail"))
+        !data.email.contains("youremail")) {
       score += 5;
-    else
+    } else {
       recommendations.add("Add a valid email address");
+    }
 
-    if (data.phone.isNotEmpty && !data.phone.contains("1234567890"))
+    if (data.phone.isNotEmpty && !data.phone.contains("1234567890")) {
       score += 5;
-    else
+    } else {
       recommendations.add("Add your phone number");
+    }
 
     if ((data.street.isNotEmpty && !data.street.contains("Street")) ||
-        (data.city.isNotEmpty && !data.city.contains("City")))
+        (data.city.isNotEmpty && !data.city.contains("City"))) {
       score += 5;
-    else
+    } else {
       recommendations.add("Add your location details");
+    }
 
     if ((data.linkedin.isNotEmpty && !data.linkedin.contains("yourprofile")) ||
-        (data.github.isNotEmpty && !data.github.contains("yourprofile")))
+        (data.github.isNotEmpty && !data.github.contains("yourprofile"))) {
       score += 5;
-    else
+    } else {
       recommendations.add("Add LinkedIn or GitHub profile");
+    }
 
     // Skills Section (20 points)
     List<String> allSkills = _getSkillRows()
@@ -2450,10 +2608,11 @@ class _ResumeHomeState extends State<ResumeHome> {
     if (allSkills.isNotEmpty) {
       score += 10;
       int skillCount = allSkills.join(',').split(',').length;
-      if (skillCount >= 5)
+      if (skillCount >= 5) {
         score += 5;
-      else
+      } else {
         recommendations.add("Add more skills (at least 5)");
+      }
 
       // Check for technical keywords
       String skillsText = allSkills.join(' ').toLowerCase();
@@ -2479,10 +2638,11 @@ class _ResumeHomeState extends State<ResumeHome> {
       int techCount = techKeywords
           .where((keyword) => skillsText.contains(keyword))
           .length;
-      if (techCount >= 3)
+      if (techCount >= 3) {
         score += 5;
-      else
+      } else {
         recommendations.add("Add more technical skills with industry keywords");
+      }
     } else {
       recommendations.add("Add skills section with relevant keywords");
     }
@@ -2497,20 +2657,22 @@ class _ResumeHomeState extends State<ResumeHome> {
             exp.description.isNotEmpty &&
             !exp.description.contains("Briefly describe"),
       );
-      if (hasDescriptions)
+      if (hasDescriptions) {
         score += 8;
-      else
+      } else {
         recommendations.add("Add detailed job descriptions");
+      }
 
       // Check for quantifiable achievements
       String expText = data.experiences.map((exp) => exp.description).join(' ');
       RegExp numbers = RegExp(r'\d+');
-      if (numbers.hasMatch(expText))
+      if (numbers.hasMatch(expText)) {
         score += 7;
-      else
+      } else {
         recommendations.add(
           "Include quantifiable achievements (numbers, percentages)",
         );
+      }
     } else {
       recommendations.add("Add work experience section");
     }
@@ -2529,10 +2691,12 @@ class _ResumeHomeState extends State<ResumeHome> {
           data.universityDuration.isNotEmpty ||
           data.collegeDuration.isNotEmpty ||
           data.highSchoolDuration.isNotEmpty;
-      if (hasGraduation && !data.universityDuration.contains("Graduation Date"))
+      if (hasGraduation &&
+          !data.universityDuration.contains("Graduation Date")) {
         score += 5;
-      else
+      } else {
         recommendations.add("Add graduation years for education");
+      }
     } else {
       recommendations.add("Add education section");
     }
@@ -2545,10 +2709,11 @@ class _ResumeHomeState extends State<ResumeHome> {
             proj.description.isNotEmpty &&
             !proj.description.contains("Briefly describe"),
       );
-      if (hasProjectDesc)
+      if (hasProjectDesc) {
         score += 5;
-      else
+      } else {
         recommendations.add("Add detailed project descriptions");
+      }
     } else {
       recommendations.add("Consider adding relevant projects");
     }
@@ -2559,8 +2724,9 @@ class _ResumeHomeState extends State<ResumeHome> {
     }
 
     // Format and Structure Bonuses
-    if (data.name.length > 2 && !data.name.contains(RegExp(r'[^a-zA-Z\s]')))
+    if (data.name.length > 2 && !data.name.contains(RegExp(r'[^a-zA-Z\s]'))) {
       score += 2;
+    }
     if (data.email.toLowerCase() == data.email) score += 1;
     int totalSkillCount = allSkills.join(',').split(',').length;
     if (totalSkillCount >= 8) score += 2;
@@ -2591,7 +2757,7 @@ class _ResumeHomeState extends State<ResumeHome> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.transparent,
@@ -2614,7 +2780,7 @@ class _ResumeHomeState extends State<ResumeHome> {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -2630,10 +2796,10 @@ class _ResumeHomeState extends State<ResumeHome> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.white.withOpacity(0.2),
-                        Colors.white.withOpacity(0.1),
-                        Colors.transparent,
-                        Colors.white.withOpacity(0.1),
+                        Colors.white.withValues(alpha: 0.2),
+                        Colors.white.withValues(alpha: 0.2),
+                        Colors.white.withValues(alpha: 0.1),
+                        Colors.white.withValues(alpha: 0.1),
                       ],
                     ),
                   ),
@@ -2656,7 +2822,9 @@ class _ResumeHomeState extends State<ResumeHome> {
                           borderRadius: BorderRadius.circular(18),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF8B5CF6).withOpacity(0.3),
+                              color: const Color(
+                                0xFF8B5CF6,
+                              ).withValues(alpha: 0.3),
                               blurRadius: 15,
                               offset: const Offset(0, 8),
                             ),
@@ -2682,7 +2850,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                         'Analyze your resume\'s ATS compatibility',
                         style: TextStyle(
                           fontSize: 14,
-                          color: const Color(0xFF4A5568).withOpacity(0.8),
+                          color: const Color(0xFF4A5568).withValues(alpha: 0.8),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -2692,15 +2860,15 @@ class _ResumeHomeState extends State<ResumeHome> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.3),
+                            color: Colors.white.withValues(alpha: 0.3),
                             width: 1,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
@@ -2739,7 +2907,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                                                     : _atsScore >= 60
                                                     ? const Color(0xFFF59E0B)
                                                     : const Color(0xFFEF4444))
-                                                .withOpacity(0.3),
+                                                .withValues(alpha: 0.3),
                                         blurRadius: 10,
                                         offset: const Offset(0, 4),
                                       ),
@@ -2872,8 +3040,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                                               ],
                                             ),
                                           ),
-                                        )
-                                        .toList(),
+                                        ),
                                 ],
                               ),
                             ),
@@ -2988,7 +3155,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   color: Color(0xFF2D3748),
                 ),
               ),
-              content: Container(
+              content: SizedBox(
                 width: 500,
                 height: 600,
                 child: DefaultTabController(
@@ -3241,7 +3408,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           spacing: 8,
           runSpacing: 8,
           children: colors.map((color) {
-            bool isSelected = color.value == currentColor.value;
+            bool isSelected = color.toARGB32() == currentColor.toARGB32();
             return GestureDetector(
               onTap: () => onColorChanged(color),
               child: Container(
@@ -3257,7 +3424,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
+                            color: Colors.black.withValues(alpha: 0.3),
                             blurRadius: 4,
                             offset: const Offset(0, 2),
                           ),
@@ -3380,35 +3547,39 @@ class _ResumeHomeState extends State<ResumeHome> {
                   const SizedBox(height: 12),
 
                   // Section Name Input
-                  TextFormField(
+                  GrammarAwareTextField(
                     controller: _newSectionNameController,
+                    onChanged: (_) {},
+                    grammarCheckEnabled: true,
                     decoration: const InputDecoration(
                       labelText: 'Section Name',
                       hintText: 'e.g., Certifications, Languages, Hobbies',
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
                   ),
 
                   const SizedBox(height: 12),
 
                   // Section Content Input
-                  TextFormField(
+                  GrammarAwareTextField(
                     controller: _newSectionContentController,
+                    onChanged: (_) {},
+                    grammarCheckEnabled: true,
                     maxLines: 3,
                     decoration: const InputDecoration(
                       labelText: 'Section Content',
                       hintText: 'Enter the content for this section...',
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
                   ),
 
@@ -3477,9 +3648,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           const SizedBox(height: 8),
 
           _sectionNameEditor("Skills Section", skillsSectionName, (value) {
-            setDialogState(() {
-              skillsSectionName = value;
-            });
+            skillsSectionName = value;
           }),
 
           const SizedBox(height: 12),
@@ -3487,17 +3656,13 @@ class _ResumeHomeState extends State<ResumeHome> {
           _sectionNameEditor("Experience Section", experienceSectionName, (
             value,
           ) {
-            setDialogState(() {
-              experienceSectionName = value;
-            });
+            experienceSectionName = value;
           }),
 
           const SizedBox(height: 12),
 
           _sectionNameEditor("Projects Section", projectsSectionName, (value) {
-            setDialogState(() {
-              projectsSectionName = value;
-            });
+            projectsSectionName = value;
           }),
 
           const SizedBox(height: 12),
@@ -3505,9 +3670,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           _sectionNameEditor("Education Section", educationSectionName, (
             value,
           ) {
-            setDialogState(() {
-              educationSectionName = value;
-            });
+            educationSectionName = value;
           }),
 
           const SizedBox(height: 12),
@@ -3515,9 +3678,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           _sectionNameEditor("Achievements Section", achievementsSectionName, (
             value,
           ) {
-            setDialogState(() {
-              achievementsSectionName = value;
-            });
+            achievementsSectionName = value;
           }),
 
           const SizedBox(height: 12),
@@ -3525,9 +3686,7 @@ class _ResumeHomeState extends State<ResumeHome> {
           _sectionNameEditor("Strengths Section", strengthsSectionName, (
             value,
           ) {
-            setDialogState(() {
-              strengthsSectionName = value;
-            });
+            strengthsSectionName = value;
           }),
 
           const SizedBox(height: 20),
@@ -3587,46 +3746,48 @@ class _ResumeHomeState extends State<ResumeHome> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  TextFormField(
-                    initialValue: section['name'],
-                    onChanged: (value) {
-                      setDialogState(() {
-                        customSections[index]['name'] = value;
-                      });
-                    },
+                  GrammarAwareTextField(
+                    controller: _getDialogFieldController(
+                      'custom.${section['id']}.name',
+                      section['name'] ?? '',
+                    ),
+                    onChanged: (value) => _runDebouncedInputUpdate(() {
+                      customSections[index]['name'] = value;
+                    }),
                     decoration: const InputDecoration(
                       labelText: 'Section Name',
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  TextFormField(
-                    initialValue: section['content'],
-                    onChanged: (value) {
-                      setDialogState(() {
-                        customSections[index]['content'] = value;
-                      });
-                    },
+                  GrammarAwareTextField(
+                    controller: _getDialogFieldController(
+                      'custom.${section['id']}.content',
+                      section['content'] ?? '',
+                    ),
+                    onChanged: (value) => _runDebouncedInputUpdate(() {
+                      customSections[index]['content'] = value;
+                    }),
                     maxLines: 3,
                     decoration: const InputDecoration(
                       labelText: 'Section Content',
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
                       border: OutlineInputBorder(),
                       isDense: true,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
 
           const SizedBox(height: 20),
 
@@ -3672,6 +3833,10 @@ class _ResumeHomeState extends State<ResumeHome> {
     String currentValue,
     Function(String) onChanged,
   ) {
+    final controller = _getDialogFieldController(
+      'section.$label',
+      currentValue,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3690,14 +3855,20 @@ class _ResumeHomeState extends State<ResumeHome> {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: const Color(0xFFB8E6C1)),
           ),
-          child: TextFormField(
-            initialValue: currentValue,
-            onChanged: onChanged,
+          child: GrammarAwareTextField(
+            controller: controller,
+            onChanged: (value) =>
+                _runDebouncedInputUpdate(() => onChanged(value)),
+            grammarCheckEnabled: true,
             style: const TextStyle(color: Color(0xFF2D3748), fontSize: 14),
+            maxLines: 1,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
             decoration: const InputDecoration(
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               border: InputBorder.none,
-              hintText: "Enter section name...",
+              hintText: 'Enter section name...',
               hintStyle: TextStyle(color: Color(0xFF718096), fontSize: 14),
             ),
           ),
@@ -3715,10 +3886,7 @@ class _ResumeHomeState extends State<ResumeHome> {
       'Education',
       'Achievements',
       'Strengths',
-      ...customSections
-          .map((section) => section['id'])
-          .whereType<String>()
-          .toList(),
+      ...customSections.map((section) => section['id']).whereType<String>(),
     ];
     final missingSections = allAvailableSections
         .where((id) => !tempOrder.contains(id))
@@ -3747,7 +3915,7 @@ class _ResumeHomeState extends State<ResumeHome> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _sectionToAddFromOrder,
+                  initialValue: _sectionToAddFromOrder,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Add section to order',
@@ -3987,7 +4155,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                       }
                       return pw.SizedBox();
                   }
-                }).toList(),
+                }),
               ],
             );
           },
@@ -4178,8 +4346,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   pw.SizedBox(height: 12),
                 ],
               );
-            })
-            .toList(),
+            }),
         pw.SizedBox(height: 8),
       ],
     );
@@ -4209,29 +4376,27 @@ class _ResumeHomeState extends State<ResumeHome> {
                   proj.title.trim().isNotEmpty ||
                   proj.description.trim().isNotEmpty,
             )
-            .map((
-          project,
-        ) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              if (project.title.trim().isNotEmpty)
-                pw.Text(
-                  project.title,
-                  style: pw.TextStyle(
-                    fontSize: bodyTextSize + 1,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              if (project.title.trim().isNotEmpty &&
-                  project.description.trim().isNotEmpty)
-                pw.SizedBox(height: 4),
-              if (project.description.trim().isNotEmpty)
-                _buildPDFBulletList(project.description),
-              pw.SizedBox(height: 12),
-            ],
-          );
-        }).toList(),
+            .map((project) {
+              return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  if (project.title.trim().isNotEmpty)
+                    pw.Text(
+                      project.title,
+                      style: pw.TextStyle(
+                        fontSize: bodyTextSize + 1,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  if (project.title.trim().isNotEmpty &&
+                      project.description.trim().isNotEmpty)
+                    pw.SizedBox(height: 4),
+                  if (project.description.trim().isNotEmpty)
+                    _buildPDFBulletList(project.description),
+                  pw.SizedBox(height: 12),
+                ],
+              );
+            }),
         pw.SizedBox(height: 8),
       ],
     );
@@ -4419,7 +4584,7 @@ class _ResumeHomeState extends State<ResumeHome> {
               ],
             ),
           );
-        }).toList(),
+        }),
         pw.SizedBox(height: 8),
       ],
     );
@@ -4465,7 +4630,7 @@ class _ResumeHomeState extends State<ResumeHome> {
               ],
             ),
           );
-        }).toList(),
+        }),
         pw.SizedBox(height: 8),
       ],
     );
@@ -4723,7 +4888,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                           experience.location,
                           style: TextStyle(
                             fontSize: bodyTextSize,
-                            color: bodyTextColor.withOpacity(0.8),
+                            color: bodyTextColor.withValues(alpha: 0.8),
                           ),
                         ),
                       ],
@@ -4736,14 +4901,14 @@ class _ResumeHomeState extends State<ResumeHome> {
                           style: TextStyle(
                             fontSize: bodyTextSize,
                             fontStyle: FontStyle.italic,
-                            color: bodyTextColor.withOpacity(0.8),
+                            color: bodyTextColor.withValues(alpha: 0.8),
                           ),
                         ),
                         Text(
                           experience.duration,
                           style: TextStyle(
                             fontSize: bodyTextSize,
-                            color: bodyTextColor.withOpacity(0.8),
+                            color: bodyTextColor.withValues(alpha: 0.8),
                           ),
                         ),
                       ],
@@ -4762,8 +4927,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   ],
                 ),
               ),
-            )
-            .toList(),
+            ),
       ],
     );
   }
@@ -4827,8 +4991,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   ],
                 ),
               ),
-            )
-            .toList(),
+            ),
       ],
     );
   }
@@ -4899,7 +5062,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                 location,
                 style: TextStyle(
                   fontSize: bodyTextSize,
-                  color: bodyTextColor.withOpacity(0.8),
+                  color: bodyTextColor.withValues(alpha: 0.8),
                 ),
               ),
             ],
@@ -4912,14 +5075,14 @@ class _ResumeHomeState extends State<ResumeHome> {
                 style: TextStyle(
                   fontSize: bodyTextSize,
                   fontStyle: FontStyle.italic,
-                  color: bodyTextColor.withOpacity(0.8),
+                  color: bodyTextColor.withValues(alpha: 0.8),
                 ),
               ),
               Text(
                 duration,
                 style: TextStyle(
                   fontSize: bodyTextSize,
-                  color: bodyTextColor.withOpacity(0.8),
+                  color: bodyTextColor.withValues(alpha: 0.8),
                 ),
               ),
             ],
@@ -4961,8 +5124,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   ),
                 ),
               ),
-            )
-            .toList(),
+            ),
       ],
     );
   }
@@ -4999,8 +5161,7 @@ class _ResumeHomeState extends State<ResumeHome> {
                   ),
                 ),
               ),
-            )
-            .toList(),
+            ),
       ],
     );
   }
